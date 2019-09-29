@@ -7,8 +7,8 @@
 //      2019.08.22 Initial version
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "cxx11required.hpp"
 #include <exception>
+#include <memory>
 #include <string>
 #include <system_error>
 #include <cstdint>
@@ -32,19 +32,21 @@ enum open_mode_enum
     , truncate     = 0x0010                  /**< Create device (only for regular file device) */
 };
 
-enum device_type_enum
+using open_mode_flags = std::underlying_type<open_mode_enum>::type;
+
+enum class device_type
 {
-      device_unknown = 0
-    , device_null
-    , device_buffer
-    , device_stream
-    , device_file
-    , device_tcp_socket
-    , device_tcp_peer
-    , device_udp_socket
-    , device_udp_peer
-    , device_local_socket
-    , device_local_peer
+      unknown = 0
+    , null
+    , buffer
+    , stream
+    , file
+    , tcp_socket
+    , tcp_peer
+    , udp_socket
+    , udp_peer
+    , local_socket
+    , local_peer
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -56,6 +58,8 @@ enum class errc
     , operation_in_progress
     , connection_refused
     , bad_file_descriptor
+    , invalid_argument
+    , device_too_large
     , stream
     , timeout
 };
@@ -83,6 +87,12 @@ public:
             case static_cast<int>(errc::bad_file_descriptor):
                 return std::string{"bad file descriptor"};
 
+            case static_cast<int>(errc::invalid_argument):
+                return std::string{"invalid argument"};
+                
+            case static_cast<int>(errc::device_too_large):
+                return std::string{"device too large"};
+                
             case static_cast<int>(errc::stream):
                 return std::string{"stream error"};
 
@@ -105,6 +115,18 @@ inline std::error_code make_error_code (errc e)
     return std::error_code(static_cast<int>(e), get_error_category());
 }
 
+// [Construct std::error_code from errno on POSIX and GetLastError() on Windows](https://stackoverflow.com/questions/13950938/construct-stderror-code-from-errno-on-posix-and-getlasterror-on-windows)
+//
+inline std::error_code get_last_system_error ()
+{
+#if defined(_MSC_VER)
+    return error_code(::GetLastError(), std::system_category());
+#else  // POSIX
+    return error_code(errno, std::generic_category());
+#endif // defined(_MSC_VER)
+}
+
+
 /**
  * @class pfs::io::exception
  */
@@ -114,30 +136,16 @@ using exception = std::system_error;
 // Basic device class
 ////////////////////////////////////////////////////////////////////////////////
 
-template <typename NativeHandle = int>
 class basic_device
 {
 public:
-    using native_handle_type = NativeHandle;
-    using open_mode_flags    = std::uint32_t;
-    using open_mode_type     = open_mode_enum;
-
-protected:
-    native_handle_type _handle;
-
-public:
-    basic_device (native_handle_type && handle)
-        : _handle{handle}
-    {}
-
+    basic_device () {}
     virtual ~basic_device () {}
 
-    virtual native_handle_type native_handle () const = 0;
+    virtual device_type type () const noexcept = 0;
 
-//     virtual error_code reopen () = 0;
-//
-//     virtual open_mode_flags open_mode () const = 0;
-//
+    virtual open_mode_flags open_mode () const noexcept = 0;
+
 //     virtual ssize_t available () const = 0;
 //
 //     bool at_end () const
@@ -145,30 +153,10 @@ public:
 //         return this->available() == ssize_t(0);
 //     }
 
-    /**
-     * @note Implementation must read no more than @a n and return immediately.
-     */
     virtual ssize_t read (char * bytes, size_t n, error_code & ec) noexcept = 0;
 
-//     ssize_t read (byte_t * bytes, size_t n)
-//     {
-//         error_code ec;
-//         ssize_t r = read(bytes, n, ec);
-//         if (r < 0)
-//             PFS_THROW(io_exception(ec));
-//         return r;
-//     }
-//
-//     ssize_t read (char * chars, size_t n, error_code & ec) noexcept
-//     {
-//         return this->read(reinterpret_cast<byte_t *>(chars), n, ec);
-//     }
-//
-//     ssize_t read (char * chars, size_t n)
-//     {
-//         return this->read(reinterpret_cast<byte_t *>(chars), n);
-//     }
-//
+    virtual ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept = 0;
+    
 //     ssize_t read (byte_string & bytes, size_t n, error_code & ec) noexcept
 //     {
 //         if (n == 0)
@@ -272,8 +260,6 @@ public:
 //         return this->read_wait(bytes, available(), millis);
 //     }
 //
-//     virtual ssize_t write (byte_t const * bytes, size_t n, error_code & ec) noexcept = 0;
-//
 //     ssize_t write (byte_t const * bytes, size_t n)
 //     {
 //         error_code ec;
@@ -312,30 +298,107 @@ public:
 //     {
 //         return this->write(bytes.data(), bytes.size());
 //     }
-//
-//     virtual error_code close () = 0;
-//
-//     virtual bool opened () const = 0;
-//
+
+    virtual error_code close () = 0;
+
+    virtual bool opened () const noexcept = 0;
+
 //     virtual void flush () = 0;
 //
 //     virtual bool set_nonblocking (bool on) = 0;
 //
 //     virtual bool is_nonblocking () const = 0;
-//
-//     bool is_readable () const
-//     {
-//         return this->open_mode() | read_only;
-//     }
-//
-//     bool is_writable () const
-//     {
-//         return this->open_mode() | write_only;
-//     }
-//
-//     //virtual native_handle_type native_handle () const = 0;
-//
-//     virtual device_type type () const = 0;
 };
 
-}}} // pfs::io::details
+////////////////////////////////////////////////////////////////////////////////
+//
+////////////////////////////////////////////////////////////////////////////////
+template <typename T>
+using unique_ptr = std::unique_ptr<T>;
+
+// template <device_type DeviceType>
+// struct open_params;
+
+class device
+{
+private:
+    std::unique_ptr<basic_device> _d;
+
+    device () {}    
+    
+public:
+    device (basic_device * d) : _d(d) {}
+    device (device &&) = default;
+    device & operator = (device &&) = default;
+    
+    device (device const &) = delete;
+    device & operator = (device const &) = delete;
+    
+    ~device () {
+        if (opened())
+            close();
+    }
+    
+    inline device_type type () const noexcept
+    {
+        return _d->type();
+    }
+
+    inline open_mode_flags open_mode () const noexcept
+    {
+        return _d->open_mode();
+    }
+    
+    inline bool is_readable () const noexcept
+    {
+        return _d->open_mode() & read_only;
+    }
+
+    inline bool is_writable () const noexcept
+    {
+        return this->open_mode() & write_only;
+    }
+    
+    inline error_code close ()
+    {
+        return _d->close();
+    }
+    
+    inline bool opened () const noexcept 
+    {
+        return _d && _d->opened();
+    }
+    
+    inline ssize_t read (char * bytes, size_t n, error_code & ec) noexcept
+    {
+        return _d->read(bytes, n, ec);
+    }
+
+    inline ssize_t read (char * bytes, size_t n)
+    {
+        error_code ec;
+        ssize_t r = read(bytes, n, ec);
+        if (r < 0) throw exception(ec);
+        return r;
+    }
+    
+    inline ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept
+    {
+        return _d->write(bytes, n, ec);
+    }
+    
+    inline void swap (device & rhs)
+    {
+        _d.swap(rhs._d);
+    }
+    
+    inline void invalidate ()
+    {
+        if (_d) {
+            device tmp;
+            swap(tmp);
+        }
+    }
+};
+
+}} // pfs::io
