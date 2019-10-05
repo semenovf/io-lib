@@ -7,6 +7,7 @@
 //      2019.08.22 Initial version
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
+#include "operationsystem.h"
 #include <exception>
 #include <memory>
 #include <string>
@@ -115,15 +116,28 @@ inline std::error_code make_error_code (errc e)
     return std::error_code(static_cast<int>(e), get_error_category());
 }
 
+// TODO Crossplatform
 // [Construct std::error_code from errno on POSIX and GetLastError() on Windows](https://stackoverflow.com/questions/13950938/construct-stderror-code-from-errno-on-posix-and-getlasterror-on-windows)
 //
+#if defined(PFS_OS_UNIX)
+inline std::error_code make_error_code_from_errno (int e)
+{
+    switch(e) {
+        case EBADF: return make_error_code(errc::bad_file_descriptor);
+        case EINVAL: return make_error_code(errc::invalid_argument);
+        default: break;
+    }
+    return error_code(errno, std::generic_category());
+}
+#endif
+
 inline std::error_code get_last_system_error ()
 {
-#if defined(_MSC_VER)
+#if defined(PFS_OS_WIN)
     return error_code(::GetLastError(), std::system_category());
 #else  // POSIX
-    return error_code(errno, std::generic_category());
-#endif // defined(_MSC_VER)
+    return make_error_code_from_errno(errno);
+#endif // defined(PFS_OS_WIN)
 }
 
 
@@ -316,17 +330,13 @@ public:
 template <typename T>
 using unique_ptr = std::unique_ptr<T>;
 
-// template <device_type DeviceType>
-// struct open_params;
-
 class device
 {
 private:
     std::unique_ptr<basic_device> _d;
-
-    device () {}    
     
 public:
+    device () {}    
     device (basic_device * d) : _d(d) {}
     device (device &&) = default;
     device & operator = (device &&) = default;
@@ -337,6 +347,11 @@ public:
     ~device () {
         if (opened())
             close();
+    }
+    
+    inline bool is_null ()  const noexcept
+    {
+        return _d.get() == nullptr;
     }
     
     inline device_type type () const noexcept

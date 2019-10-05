@@ -1,4 +1,5 @@
 #pragma once
+#include "operationsystem.h"
 #include "device.hpp"
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -8,8 +9,8 @@
 namespace pfs { 
 namespace io {
 
-enum class permission {
-      none         = 0
+enum permission {
+      permission_none = 0
     , owner_read   = 1 << 0
     , owner_write  = 1 << 1
     , owner_exec   = 1 << 2
@@ -31,8 +32,7 @@ class file : public basic_device
 private:
     static bool is_permission_enabled (permissions perms, permission perm)
     {
-        return (perms & static_cast<permissions>(permission::owner_read))
-                != static_cast<permissions>(permission::none));
+        return (perms & perm) != permission_none;
     }
     
     static int to_native_perms (permissions perms)
@@ -55,7 +55,7 @@ private:
 public:
     error_code open (std::string const & path
             , open_mode_flags oflags
-            , permissions perms)
+            , permissions perms = owner_read | owner_write)
     {
         int native_oflags = 0;
         mode_t native_mode = 0;
@@ -78,8 +78,13 @@ public:
         if (oflags & truncate)
             native_oflags |= O_TRUNC;
         
+        int fd = -1;
         
-        int fd = ::open(path.c_str(), native_oflags, native_mode);
+        if (native_mode)
+            fd = ::open(path.c_str(), native_oflags, native_mode);
+        else
+            fd = ::open(path.c_str(), native_oflags);
+        
         error_code ec;
 
         if (fd >= 0) {
@@ -94,6 +99,27 @@ public:
     
 public:
     file () {}
+    file (file const &) = delete;
+    file & operator = (file const &) = delete;
+    
+    file (file && rhs)
+    {
+        swap(rhs);
+    }
+
+    file & operator = (file && rhs)
+    {
+        file tmp;
+        swap(tmp);
+        swap(rhs);
+        return *this;
+    }
+
+    virtual ~file () 
+    {
+        if (_fd > 0) 
+            close();
+    }
 
     device_type type () const noexcept override
     {
@@ -108,10 +134,14 @@ public:
         open_mode_flags result = not_open;
 
         char buf[1] = {0};
+        
+        errno = 0;
 
         if (::read(_fd, buf, 0) >= 0 && errno != EBADF)
             result |= read_only;
 
+        errno = 0;
+        
         if (::write(_fd, buf, 0) >= 0 && errno != EBADF)
             result |= write_only;
 
@@ -139,57 +169,88 @@ public:
         return _fd >= 0;
     }
     
-//     /**
-//      * @return -1 on error.
-//      * @exception errc::invalid_argument if buffer is unsuitable for reading
-//      * (i.e. opened without read mode)
-//      */
-//     ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
-//     {
-//         if (!(_oflags & read_only)) {
-//             ec = make_error_code(errc::invalid_argument);
-//             return -1;
-//         }
-//         
-//         if (_pos >= _c->size())
-//             return 0;
-// 
-//         n = std::min(n, _c->size() - _pos);
-//         _c->copy(bytes, n, _pos);
-//         _pos += n;
-//  
-//         return static_cast<ssize_t>(n);
-//     }
-//     
-//     /**
-//      */
-//     ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
-//     {
-//         if (!(_oflags & write_only)) {
-//             ec = make_error_code(errc::invalid_argument);
-//             return -1;
-//         }
-//         
-//         if (n > _c->max_size() - _pos) {
-//             ec = make_error_code(errc::device_too_large);
-//             return -1;
-//         }
-//     
-//         _c->append(bytes, n);
-//         return static_cast<ssize_t>(n);
-//     }
+    /**
+     * @return -1 on error.
+     */
+    ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
+    {
+        ssize_t sz = ::read(_fd, bytes, n);
+
+        if (sz < 0)
+            ec = get_last_system_error();
+
+        return sz;
+    }
+    
+    /**
+     */
+    ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    {
+        ssize_t sz = ::write(_fd, bytes, n);
+
+        if (sz < 0)
+            ec = get_last_system_error();
+
+        return sz;
+    }
+    
+    void swap (file & rhs)
+    {
+        using std::swap;
+        swap(_fd, rhs._fd);
+        swap(_path, rhs._path);
+    }
 };
 
-device make_file (std::string const & path, open_mode_flags oflags)
+/**
+ * Makes file device.
+ */
+device make_file (std::string const & path
+        , open_mode_flags oflags
+        , permissions perms
+        , error_code & ec)
 {
-    return device{new file{path, oflags}};
+    file f;
+    ec = f.open(path, oflags, perms);
+    return ec ? device{} : device{new file(std::move(f))};
 }
 
+/**
+ * Makes file device.
+ */
+device make_file (std::string const & path
+        , open_mode_flags oflags
+        , error_code & ec)
+{
+    return make_file(path
+            , oflags
+            , owner_read | owner_write
+            , ec);
+}
+
+/**
+ * Makes file device.
+ */
 device make_file (std::string const & path
         , open_mode_flags oflags
         , permissions perms)
 {
-    return device{new file{path, oflags, perms}};
+    error_code ec;
+    auto d = make_file(path, oflags, perms, ec);
+    if (ec) throw exception(ec);
+    return d;
+}
+
+/**
+ * Makes file device.
+ */
+device make_file (std::string const & path
+        , open_mode_flags oflags)
+{
+    error_code ec;
+    auto d = make_file(path, oflags, ec);
+    if (ec) throw exception(ec);
+    return d;
 }
 
 }} // pfs::io
