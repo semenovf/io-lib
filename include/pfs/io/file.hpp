@@ -1,6 +1,5 @@
 #pragma once
-#include "operationsystem.h"
-#include "device.hpp"
+#include "basic_file.hpp"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -24,9 +23,8 @@ enum permission {
 
 using permissions = std::underlying_type<permission>::type;
 
-class file : public basic_device
+class file : public basic_file
 {
-    int _fd = -1;
     std::string _path;
 
 private:
@@ -98,11 +96,11 @@ public:
     }
     
 public:
-    file () {}
+    file () : basic_file() {}
     file (file const &) = delete;
     file & operator = (file const &) = delete;
     
-    file (file && rhs)
+    file (file && rhs) : basic_file()
     {
         swap(rhs);
     }
@@ -110,89 +108,32 @@ public:
     file & operator = (file && rhs)
     {
         file tmp;
+        rhs.swap(tmp);
         swap(tmp);
-        swap(rhs);
         return *this;
     }
 
-    virtual ~file () 
-    {
-        if (_fd > 0) 
-            close();
-    }
+    virtual ~file () {}
 
     device_type type () const noexcept override
     {
         return device_type::file;
     }
     
-    open_mode_flags open_mode () const noexcept override
-    {
-        if (_fd < 0)
-            return not_open;
-        
-        open_mode_flags result = not_open;
-
-        char buf[1] = {0};
-        
-        errno = 0;
-
-        if (::read(_fd, buf, 0) >= 0 && errno != EBADF)
-            result |= read_only;
-
-        errno = 0;
-        
-        if (::write(_fd, buf, 0) >= 0 && errno != EBADF)
-            result |= write_only;
-
-        return result;
-    }
+    // Inherited from basic_file.
+    // open_mode_flags open_mode () const noexcept override
     
-    error_code close () override
-    {
-        error_code ec;
+    // Inherited from basic_file.
+    // error_code close () override
 
-        if (_fd > 0) {
-            if (fsync(_fd) != 0)
-                ec = get_last_system_error();
-            
-            if (::close(_fd) < 0)
-                ec = get_last_system_error();
-        }
-
-        _fd = -1;
-        return ec;
-    }
+    // Inherited from basic_file.
+    // bool opened () const noexcept override
     
-    bool opened () const noexcept override
-    {
-        return _fd >= 0;
-    }
+    // Inherited from basic_file.
+    // ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
     
-    /**
-     * @return -1 on error.
-     */
-    ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
-    {
-        ssize_t sz = ::read(_fd, bytes, n);
-
-        if (sz < 0)
-            ec = get_last_system_error();
-
-        return sz;
-    }
-    
-    /**
-     */
-    ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
-    {
-        ssize_t sz = ::write(_fd, bytes, n);
-
-        if (sz < 0)
-            ec = get_last_system_error();
-
-        return sz;
-    }
+    // Inherited from basic_file.
+    // ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
     
     void swap (file & rhs)
     {
