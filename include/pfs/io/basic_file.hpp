@@ -3,38 +3,45 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-namespace pfs { 
+namespace pfs {
 namespace io {
 
 class basic_file : public basic_device
 {
-protected:    
+protected:
     int _fd = -1;
-    
+
 protected:
     basic_file () {}
+    basic_file (int fd) : _fd(fd) {}
+
+    void swap (basic_file & rhs)
+    {
+        using std::swap;
+        swap(_fd, rhs._fd);
+    }
 
 public:
-    virtual ~basic_file () 
+    virtual ~basic_file ()
     {
-        if (_fd > 0) 
+        if (_fd > 0)
             close();
     }
-    
+
     open_mode_flags open_mode () const noexcept override
     {
         if (_fd < 0)
             return not_open;
-        
+
         open_mode_flags result = not_open;
         int status = ::fcntl(_fd, F_GETFL);
-       
+
         // NOTE Never pass (O_RDONLY is zero)
         //
         //if (status & O_RDONLY)
         //    result |= read_only;
         //
-        // So checking for readable device make through attempt to direct read 
+        // So checking for readable device make through attempt to direct read
         // from device
         {
             char buf[1] = {0};
@@ -47,16 +54,16 @@ public:
             result |= read_only;
             result |= write_only;
         }
-        
+
         if (status & O_WRONLY)
             result |= write_only;
-        
+
         if (status & O_NONBLOCK || status & O_NDELAY)
             result |= non_blocking;
-        
+
         return result;
     }
-    
+
     error_code close () override
     {
         error_code ec;
@@ -64,7 +71,7 @@ public:
         if (_fd > 0) {
             if (fsync(_fd) != 0)
                 ec = get_last_system_error();
-            
+
             if (::close(_fd) < 0)
                 ec = get_last_system_error();
         }
@@ -72,12 +79,12 @@ public:
         _fd = -1;
         return ec;
     }
-    
+
     bool opened () const noexcept override
     {
         return _fd >= 0;
     }
-    
+
     /**
      * @return -1 on error.
      */
@@ -90,7 +97,7 @@ public:
 
         return sz;
     }
-    
+
     /**
      */
     ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override

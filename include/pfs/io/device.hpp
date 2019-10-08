@@ -58,11 +58,25 @@ enum class errc
       success = 0
     , operation_in_progress
     , connection_refused
+    , already_connected
+
+    // The device (socket) is not connected, and no target has been given.
+    , not_connected
+    , try_again
     , bad_file_descriptor
+
+    // Resource not found, or no such file or directory
+    , resource_not_found
+
+    // For connection-oriented sockets:
+    //      The user tried to connect to a broadcast address without
+    //      having the socket broadcast flag enabled or the connection
+    //      request failed because of a local firewall rule.
+    , permission_denied
     , invalid_argument
     , device_too_large
     , stream
-    , timeout
+    , timedout
 };
 
 class error_category : public std::error_category
@@ -85,19 +99,34 @@ public:
             case static_cast<int>(errc::connection_refused):
                 return std::string{"connection refused"};
 
+            case static_cast<int>(errc::already_connected):
+                return std::string{"already connected"};
+
+            case static_cast<int>(errc::not_connected):
+                return std::string{"not connected"};
+
+            case static_cast<int>(errc::try_again):
+                return std::string{"try again"};
+
             case static_cast<int>(errc::bad_file_descriptor):
                 return std::string{"bad file descriptor"};
 
+            case static_cast<int>(errc::resource_not_found):
+                return std::string{"resource not found"};
+
+            case static_cast<int>(errc::permission_denied):
+                return std::string{"permission denied"};
+
             case static_cast<int>(errc::invalid_argument):
                 return std::string{"invalid argument"};
-                
+
             case static_cast<int>(errc::device_too_large):
                 return std::string{"device too large"};
-                
+
             case static_cast<int>(errc::stream):
                 return std::string{"stream error"};
 
-            case static_cast<int>(errc::timeout):
+            case static_cast<int>(errc::timedout):
                 return std::string{"timed out"};
 
             default: return std::string{"unknown I/O error"};
@@ -123,8 +152,18 @@ inline std::error_code make_error_code (errc e)
 inline std::error_code make_error_code_from_errno (int e)
 {
     switch(e) {
-        case EBADF: return make_error_code(errc::bad_file_descriptor);
-        case EINVAL: return make_error_code(errc::invalid_argument);
+        case EINVAL      : return make_error_code(errc::invalid_argument);
+        case ECONNREFUSED: return make_error_code(errc::connection_refused);
+        case EINPROGRESS : return make_error_code(errc::operation_in_progress);
+        case EISCONN     : return make_error_code(errc::already_connected);
+        case ENOTCONN    : return make_error_code(errc::not_connected);
+        case EAGAIN      : return make_error_code(errc::try_again);
+        case EBADF       : return make_error_code(errc::bad_file_descriptor);
+        case ETIMEDOUT   : return make_error_code(errc::timedout);
+        case ENOENT      : return make_error_code(errc::resource_not_found);
+        case EACCES      :
+        case EPERM       : return make_error_code(errc::permission_denied);
+
         default: break;
     }
     return error_code(errno, std::generic_category());
@@ -170,7 +209,7 @@ public:
     virtual ssize_t read (char * bytes, size_t n, error_code & ec) noexcept = 0;
 
     virtual ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept = 0;
-    
+
 //     ssize_t read (byte_string & bytes, size_t n, error_code & ec) noexcept
 //     {
 //         if (n == 0)
@@ -316,12 +355,6 @@ public:
     virtual error_code close () = 0;
 
     virtual bool opened () const noexcept = 0;
-
-//     virtual void flush () = 0;
-//
-//     virtual bool set_nonblocking (bool on) = 0;
-//
-//     virtual bool is_nonblocking () const = 0;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -333,27 +366,27 @@ using unique_ptr = std::unique_ptr<T>;
 class device
 {
 private:
-    std::unique_ptr<basic_device> _d;
-    
+    unique_ptr<basic_device> _d;
+
 public:
-    device () {}    
+    device () {}
     device (basic_device * d) : _d(d) {}
     device (device &&) = default;
     device & operator = (device &&) = default;
-    
+
     device (device const &) = delete;
     device & operator = (device const &) = delete;
-    
+
     ~device () {
         if (opened())
             close();
     }
-    
+
     inline bool is_null ()  const noexcept
     {
         return _d.get() == nullptr;
     }
-    
+
     inline device_type type () const noexcept
     {
         return _d->type();
@@ -363,7 +396,7 @@ public:
     {
         return _d->open_mode();
     }
-    
+
     inline bool is_readable () const noexcept
     {
         return _d->open_mode() & read_only;
@@ -373,17 +406,22 @@ public:
     {
         return this->open_mode() & write_only;
     }
-    
+
+    inline bool is_nonblocking () const noexcept
+    {
+        return this->open_mode() & non_blocking;
+    }
+
     inline error_code close ()
     {
         return _d->close();
     }
-    
-    inline bool opened () const noexcept 
+
+    inline bool opened () const noexcept
     {
         return _d && _d->opened();
     }
-    
+
     inline ssize_t read (char * bytes, size_t n, error_code & ec) noexcept
     {
         return _d->read(bytes, n, ec);
@@ -396,17 +434,17 @@ public:
         if (r < 0) throw exception(ec);
         return r;
     }
-    
+
     inline ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept
     {
         return _d->write(bytes, n, ec);
     }
-    
+
     inline void swap (device & rhs)
     {
         _d.swap(rhs._d);
     }
-    
+
     inline void invalidate ()
     {
         if (_d) {

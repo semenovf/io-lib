@@ -5,7 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-namespace pfs { 
+namespace pfs {
 namespace io {
 
 enum permission {
@@ -25,14 +25,12 @@ using permissions = std::underlying_type<permission>::type;
 
 class file : public basic_file
 {
-    std::string _path;
-
 private:
     static bool is_permission_enabled (permissions perms, permission perm)
     {
         return (perms & perm) != permission_none;
     }
-    
+
     static int to_native_perms (permissions perms)
     {
         int result = 0;
@@ -75,31 +73,30 @@ public:
 
         if (oflags & truncate)
             native_oflags |= O_TRUNC;
-        
+
         int fd = -1;
-        
+
         if (native_mode)
             fd = ::open(path.c_str(), native_oflags, native_mode);
         else
             fd = ::open(path.c_str(), native_oflags);
-        
+
         error_code ec;
 
         if (fd >= 0) {
             _fd = fd;
-            _path = path;
         } else {
             ec = get_last_system_error();
         }
 
         return ec;
     }
-    
+
 public:
     file () : basic_file() {}
     file (file const &) = delete;
     file & operator = (file const &) = delete;
-    
+
     file (file && rhs) : basic_file()
     {
         swap(rhs);
@@ -119,28 +116,21 @@ public:
     {
         return device_type::file;
     }
-    
+
     // Inherited from basic_file.
     // open_mode_flags open_mode () const noexcept override
-    
+
     // Inherited from basic_file.
     // error_code close () override
 
     // Inherited from basic_file.
     // bool opened () const noexcept override
-    
+
     // Inherited from basic_file.
     // ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
-    
+
     // Inherited from basic_file.
     // ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
-    
-    void swap (file & rhs)
-    {
-        using std::swap;
-        swap(_fd, rhs._fd);
-        swap(_path, rhs._path);
-    }
 };
 
 /**

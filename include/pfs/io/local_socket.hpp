@@ -4,18 +4,58 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 
-namespace pfs { 
+namespace pfs {
 namespace io {
 
 class local_socket : public basic_file
 {
-    sockaddr_un  _sockaddr;
-    
+protected:
+    local_socket (int fd) : basic_file(fd) {}
+
+    error_code open (std::string const & name, bool nonblocking)
+    {
+        sockaddr_un saddr;
+
+        if (sizeof(saddr.sun_path) < name.size() + 1)
+            return make_error_code(errc::invalid_argument);
+
+        int socktype = SOCK_STREAM;
+
+        if (nonblocking)
+            socktype |= SOCK_NONBLOCK;
+
+        error_code ec;
+        int fd = ::socket(PF_LOCAL, socktype, 0);
+
+        if (fd >= 0) {
+            memset(& saddr, 0, sizeof(saddr));
+
+            saddr.sun_family = AF_LOCAL;
+            memcpy(saddr.sun_path, name.c_str(), name.size());
+            saddr.sun_path[name.size()] = '\0';
+
+            int rc = ::connect(fd
+                    , reinterpret_cast<struct sockaddr *>(& saddr)
+                    , sizeof(saddr));
+
+            if (rc < 0) {
+                ec = get_last_system_error();
+                ::close(fd);
+            } else {
+                _fd = fd;
+            }
+        } else {
+            ec = get_last_system_error();
+        }
+
+        return ec;
+    }
+
 public:
     local_socket () {}
     local_socket (local_socket const &) = delete;
     local_socket & operator = (local_socket const &) = delete;
-    
+
     local_socket (local_socket && rhs)
     {
        swap(rhs);
@@ -35,111 +75,93 @@ public:
     {
         return device_type::local_socket;
     }
-    
+
     // Inherited from basic_file.
     // open_mode_flags open_mode () const noexcept override
-    
-    error_code close () override
-    {
-        error_code ec;
 
-        if (_fd > 0) {
-            shutdown(_fd, SHUT_RDWR);
-        
-            if (::close(_fd) < 0)
-                ec = get_last_system_error();
-        }
+    // Inherited from basic_socket.
+    // error_code close () override
 
-        _fd = -1;
-        return ec;
-    }
-    
     // Inherited from basic_file.
     // bool opened () const noexcept override
-    
+
     /**
      * @return -1 on error.
      */
     ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
     {
-//         ssize_t sz = ::read(_fd, bytes, n);
-// 
-//         if (sz < 0)
-//             ec = get_last_system_error();
-// 
-//         return sz;
+        ssize_t rc = recv(_fd, bytes, n, 0);
+
+        if (rc < 0
+                && errno == EAGAIN
+                || (EAGAIN != EWOULDBLOCK && errno == EWOULDBLOCK))
+            rc = 0;
+
+        if (rc < 0)
+            ec = get_last_system_error();
+
+        return rc;
     }
-    
+
     /**
      */
     ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
     {
-//         ssize_t sz = ::write(_fd, bytes, n);
-// 
-//         if (sz < 0)
-//             ec = get_last_system_error();
-// 
-//         return sz;
+        int total_written = 0; // total sent
+
+        while (n) {
+            // MSG_NOSIGNAL flag means:
+            // requests not to send SIGPIPE on errors on stream oriented sockets
+            // when the other end breaks the connection.
+            // The EPIPE error is still returned.
+            ssize_t written = send(_fd, bytes + total_written, n, MSG_NOSIGNAL);
+
+            if (written < 0) {
+                if (errno == EAGAIN
+                        || (EAGAIN != EWOULDBLOCK && errno == EWOULDBLOCK))
+                    continue;
+
+                total_written = -1;
+                break;
+            }
+
+            total_written += written;
+            n -= written;
+        }
+
+        if (total_written < 0)
+            ec = get_last_system_error();
+
+        return total_written;
     }
-    
-    void swap (local_socket & rhs)
-    {
-        using std::swap;
-        swap(_fd, rhs._fd);
-        
-        sockaddr_un tmp;
-        std::memcpy(& tmp, & _sockaddr, sizeof(tmp));
-        std::memcpy(& _sockaddr, & rhs._sockaddr, sizeof(tmp));
-        std::memcpy(& rhs._sockaddr, & tmp, sizeof(tmp)); 
-    }
+
+    friend device make_local_socket (std::string const & name
+            , bool nonblocking
+            , error_code & ec);
+
+    friend device make_local_socket (std::string const & name
+            , bool nonblocking);
 };
 
 /**
- * Makes file device.
+ * Makes local socket.
  */
-device make_local_socket (std::string const & name
-        , open_mode_flags oflags
+inline device make_local_socket (std::string const & name
+        , bool nonblocking
         , error_code & ec)
 {
     local_socket sock;
-    ec = sock.connect(name, oflags);
+    ec = sock.open(name, nonblocking);
     return ec ? device{} : device{new local_socket(std::move(sock))};
 }
 
 /**
- * Makes file device.
+ * Makes local socket.
  */
-device make_file (std::string const & path
-        , open_mode_flags oflags
-        , error_code & ec)
-{
-    return make_file(path
-            , oflags
-            , owner_read | owner_write
-            , ec);
-}
-
-/**
- * Makes file device.
- */
-device make_file (std::string const & path
-        , open_mode_flags oflags
-        , permissions perms)
+inline device make_local_socket (std::string const & name, bool nonblocking)
 {
     error_code ec;
-    auto d = make_file(path, oflags, perms, ec);
-    if (ec) throw exception(ec);
-    return d;
-}
-
-/**
- * Makes file device.
- */
-device make_file (std::string const & path
-        , open_mode_flags oflags)
-{
-    error_code ec;
-    auto d = make_file(path, oflags, ec);
+    auto d = make_local_socket(name, nonblocking, ec);
     if (ec) throw exception(ec);
     return d;
 }

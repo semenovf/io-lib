@@ -10,9 +10,7 @@ set_property(TARGET CATCH_OBJLIB PROPERTY POSITION_INDEPENDENT_CODE 1)
 #
 list(APPEND MY_TEST_TARGETS buffer)
 list(APPEND MY_TEST_TARGETS file)
-# list(APPEND MY_TEST_TARGETS io-buffered_device)
-# list(APPEND MY_TEST_TARGETS io-device_manager)
-# list(APPEND MY_TEST_TARGETS io-device_notifier_pool)
+list(APPEND MY_TEST_TARGETS local_socket)
 
 ################################################################################
 
@@ -22,6 +20,8 @@ list(APPEND MY_TEST_TARGETS file)
 #     integral/to_integral.cpp)
 
 add_library(catch SHARED $<TARGET_OBJECTS:CATCH_OBJLIB>)
+
+find_package(Threads REQUIRED)
 
 #
 # Process all unit test targets
@@ -36,10 +36,10 @@ foreach (MY_TEST_TARGET ${MY_TEST_TARGETS})
     endif()
 
     if(test-${MY_TEST_TARGET}_LIBS)
-        target_link_libraries(test-${MY_TEST_TARGET} catch ${test-${MY_TEST_TARGET}_LIBS})
+        target_link_libraries(test-${MY_TEST_TARGET} catch ${test-${MY_TEST_TARGET}_LIBS} ${CMAKE_THREAD_LIBS_INIT})
     else()
-        target_link_libraries(test-${MY_TEST_TARGET} catch)
+        target_link_libraries(test-${MY_TEST_TARGET} catch ${CMAKE_THREAD_LIBS_INIT})
     endif()
-    
+
     add_test(NAME ${MY_TEST_TARGET} COMMAND test-${MY_TEST_TARGET})
 endforeach(MY_TEST_TARGET)
