@@ -1,3 +1,11 @@
+////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2019 Vladislav Trifochkin
+//
+// This file is part of [pfs-io](https://github.com/semenovf/pfs-io) library.
+//
+// Changelog:
+//      2019.10.08 Initial version
+////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "local_socket.hpp"
 #include <unistd.h>
@@ -55,43 +63,47 @@ protected:
             socktype |= SOCK_NONBLOCK;
 
         error_code ec;
-        int fd = ::socket(PF_LOCAL, socktype, 0);
 
-        if (fd >= 0) {
-            bool server_initialized = false;
+        int fd = -1;
+
+        do {
+            fd = ::socket(AF_LOCAL, socktype, 0);
+
+            if (fd < 0) {
+                ec = get_last_system_error();
+                break;
+            }
+
             memset(& saddr, 0, sizeof(saddr));
 
             saddr.sun_family = AF_LOCAL;
             memcpy(saddr.sun_path, name.c_str(), name.size());
             saddr.sun_path[name.size()] = '\0';
 
-            do {
-                // TODO File deletion must be more reasonable
-                int rc = unlink(saddr.sun_path);
+            // TODO File deletion must be more reasonable
+            int rc = unlink(saddr.sun_path);
 
-                rc = ::bind(fd
-                        , reinterpret_cast<struct sockaddr *>(& saddr)
-                        , sizeof(saddr));
+            rc = ::bind(fd
+                    , reinterpret_cast<sockaddr *>(& saddr)
+                    , sizeof(saddr));
 
-                if (rc < 0)
-                    break;
-
-                rc = listen(fd, max_pending_connections);
-
-                if (rc < 0)
-                    break;
-
-                server_initialized = true;
-            } while (false);
-
-            if (server_initialized) {
-                _fd = fd;
-            } else {
+            if (rc < 0) {
                 ec = get_last_system_error();
-                ::close(fd);
+                break;
             }
-        } else {
-            ec = get_last_system_error();
+
+            rc = listen(fd, max_pending_connections);
+
+            if (rc < 0) {
+                ec = get_last_system_error();
+                break;
+            }
+
+            _fd = fd;
+        } while (false);
+
+        if (ec && fd < 0) {
+            ::close(fd);
         }
 
         return ec;
@@ -139,11 +151,11 @@ public:
 
     device accept (error_code & ec)
     {
-        struct sockaddr_un peer_addr;
+        sockaddr_un peer_addr;
         socklen_t peer_addr_len = sizeof(peer_addr);
 
         int peer_fd = ::accept(_fd
-                , reinterpret_cast<struct sockaddr *> (& peer_addr)
+                , reinterpret_cast<sockaddr *> (& peer_addr)
                 , & peer_addr_len);
 
         if (peer_fd < 0) {

@@ -65,8 +65,12 @@ enum class errc
     , try_again
     , bad_file_descriptor
 
-    // Resource not found, or no such file or directory
-    , resource_not_found
+    // No such file or directory
+    , file_not_found
+
+    // The host address was not found.
+    // May be occured while host address resolving (while inet socket open)
+    , host_not_found
 
     // For connection-oriented sockets:
     //      The user tried to connect to a broadcast address without
@@ -111,8 +115,11 @@ public:
             case static_cast<int>(errc::bad_file_descriptor):
                 return std::string{"bad file descriptor"};
 
-            case static_cast<int>(errc::resource_not_found):
-                return std::string{"resource not found"};
+            case static_cast<int>(errc::file_not_found):
+                return std::string{"file not found"};
+
+            case static_cast<int>(errc::host_not_found):
+                return std::string{"host not found"};
 
             case static_cast<int>(errc::permission_denied):
                 return std::string{"permission denied"};
@@ -160,7 +167,7 @@ inline std::error_code make_error_code_from_errno (int e)
         case EAGAIN      : return make_error_code(errc::try_again);
         case EBADF       : return make_error_code(errc::bad_file_descriptor);
         case ETIMEDOUT   : return make_error_code(errc::timedout);
-        case ENOENT      : return make_error_code(errc::resource_not_found);
+        case ENOENT      : return make_error_code(errc::file_not_found);
         case EACCES      :
         case EPERM       : return make_error_code(errc::permission_denied);
 
@@ -452,6 +459,28 @@ public:
             swap(tmp);
         }
     }
+
+    template <typename UnderlyingDevice>
+    friend UnderlyingDevice * underlying_device (device & dev);
+
+    template <typename UnderlyingDevice>
+    friend UnderlyingDevice const * underlying_device (device const & dev);
 };
+
+template <typename UnderlyingDevice>
+inline UnderlyingDevice * underlying_device (device & dev)
+{
+    return dev.type() == UnderlyingDevice{}.type()
+            ? reinterpret_cast<UnderlyingDevice *>(dev._d.get())
+            : nullptr;
+}
+
+template <typename UnderlyingDevice>
+inline UnderlyingDevice const * underlying_device (device const & dev)
+{
+    return dev.type() == UnderlyingDevice{}.type()
+            ? reinterpret_cast<UnderlyingDevice *>(dev._d.get())
+            : nullptr;
+}
 
 }} // pfs::io

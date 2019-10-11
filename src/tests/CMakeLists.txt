@@ -11,6 +11,7 @@ set_property(TARGET CATCH_OBJLIB PROPERTY POSITION_INDEPENDENT_CODE 1)
 list(APPEND MY_TEST_TARGETS buffer)
 list(APPEND MY_TEST_TARGETS file)
 list(APPEND MY_TEST_TARGETS local_socket)
+list(APPEND MY_TEST_TARGETS tcp_socket)
 
 ################################################################################
 
