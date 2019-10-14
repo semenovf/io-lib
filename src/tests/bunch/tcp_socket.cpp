@@ -4,6 +4,8 @@
 #include <cstring>
 #include <chrono>
 #include <iostream>
+#include <mutex>
+#include <condition_variable>
 #include <thread>
 #include "../catch.hpp"
 
@@ -19,24 +21,25 @@ TEST_CASE("TCP socket / basic") {
 }
 
 TEST_CASE("TCP socket / server") {
-    std::atomic_flag server_finished = ATOMIC_FLAG_INIT;
+    int const MAX_CONNECTIONS = 5;
+    std::mutex mutex;
+    std::condition_variable cond_var;
 
-    std::thread watchdog_thread([& server_finished] {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-        bool x = server_finished.test_and_set();
+    std::thread watchdog_thread([& cond_var, & mutex] {
 
-        if (!x) {
+        std::unique_lock<std::mutex> lk(mutex);
+
+        if (cond_var.wait_for(lk, std::chrono::seconds{5}) == std::cv_status::timeout) {
             std::cerr << "ERROR: force quit expired test\n";
             std::terminate();
         }
     });
 
-    std::thread server_thread([& server_finished] {
+    std::thread server_thread([& cond_var] {
         bool nonblocking = false;
         pfs::io::error_code ec;
         auto s = pfs::io::make_tcp_server(servername, port, nonblocking, ec);
         char buf[32];
-        int const max_connections = 3;
         int good_connections = 0;
 
         CHECK_FALSE(ec);
@@ -46,7 +49,7 @@ TEST_CASE("TCP socket / server") {
             return;
         }
 
-        int n = max_connections;
+        int n = MAX_CONNECTIONS;
 
         while (n) {
             std::cout << "Waiting for connections ...\n";
@@ -70,11 +73,11 @@ TEST_CASE("TCP socket / server") {
             n--;
         }
 
-        server_finished.test_and_set();
-        CHECK(good_connections == max_connections);
+        cond_var.notify_all();
+        CHECK(good_connections == MAX_CONNECTIONS);
     });
 
-    auto client = [] () {
+    auto client = [] (std::string const & name) {
         bool nonblocking = false;
         pfs::io::error_code ec;
         auto d = pfs::io::make_tcp_socket(servername, port, nonblocking, ec);
@@ -89,8 +92,8 @@ TEST_CASE("TCP socket / server") {
 
         pfs::io::underlying_device<pfs::io::tcp_socket>(d)->enable_keep_alive(true);
 
-        char const * hello = "Hello!";
-        auto n = d.write(hello, std::strlen(hello), ec);
+        auto hello = std::string{"Hello, "} + name + '!';
+        auto n = d.write(hello.c_str(), hello.size(), ec);
 
         CHECK(n >= 0);
 
@@ -102,14 +105,11 @@ TEST_CASE("TCP socket / server") {
     // Wait for starting server
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    std::thread client1_threads(client);
-    std::thread client2_threads(client);
-    std::thread client3_threads(client);
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        std::thread client_threads(client, "Client " + std::to_string(i));
+        client_threads.join();
+    }
 
     server_thread.join();
-
-    client1_threads.join();
-    client2_threads.join();
-    client3_threads.join();
     watchdog_thread.join();
 }
