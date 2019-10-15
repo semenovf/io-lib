@@ -33,7 +33,7 @@ protected:
             socktype |= SOCK_NONBLOCK;
 
         error_code ec;
-        int fd = ::socket(PF_LOCAL, socktype, 0);
+        int fd = ::socket(AF_LOCAL, socktype, 0);
 
         if (fd >= 0) {
             memset(& saddr, 0, sizeof(saddr));
@@ -43,7 +43,7 @@ protected:
             saddr.sun_path[name.size()] = '\0';
 
             int rc = ::connect(fd
-                    , reinterpret_cast<struct sockaddr *>(& saddr)
+                    , reinterpret_cast<sockaddr *>(& saddr)
                     , sizeof(saddr));
 
             if (rc < 0) {
@@ -87,8 +87,10 @@ public:
     // Inherited from basic_file.
     // open_mode_flags open_mode () const noexcept override
 
-    // Inherited from basic_socket.
-    // error_code close () override
+    error_code close () override
+    {
+        return socket_finalizer{& _fd, true}();
+    }
 
     // Inherited from basic_file.
     // bool opened () const noexcept override

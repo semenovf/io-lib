@@ -1,103 +1,49 @@
 #pragma once
-#include "basic_file.hpp"
+#include "operationsystem.h"
+#include "device.hpp"
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
+
+#if defined(PFS_OS_UNIX)
+#   include "unix_file.hpp"
+#else
+#   error "Unsupported platform"
+#endif
 
 namespace pfs {
 namespace io {
 
-enum permission {
-      permission_none = 0
-    , owner_read   = 1 << 0
-    , owner_write  = 1 << 1
-    , owner_exec   = 1 << 2
-    , group_read   = 1 << 3
-    , group_write  = 1 << 4
-    , group_exec   = 1 << 5
-    , others_read  = 1 << 6
-    , others_write = 1 << 7
-    , others_exec  = 1 << 8
-};
+namespace platform {
 
-using permissions = std::underlying_type<permission>::type;
+#if defined(PFS_OS_UNIX)
+    using device_handle = unix_ns::device_handle;
+    using unix_ns::swap;
+    using unix_ns::open_mode;
+    using unix_ns::close;
+    using unix_ns::opened;
+    using unix_ns::read;
+    using unix_ns::write;
+#endif
 
-class file : public basic_file
+} // platform
+
+class file : public basic_device
 {
-private:
-    static bool is_permission_enabled (permissions perms, permission perm)
+    platform::device_handle _h;
+
+protected:
+    file (platform::device_handle && h)
     {
-        return (perms & perm) != permission_none;
-    }
-
-    static int to_native_perms (permissions perms)
-    {
-        int result = 0;
-
-        if (is_permission_enabled(perms, permission::owner_read))   result |= S_IRUSR;
-        if (is_permission_enabled(perms, permission::owner_write))  result |= S_IWUSR;
-        if (is_permission_enabled(perms, permission::owner_exec))   result |= S_IXUSR;
-        if (is_permission_enabled(perms, permission::group_read))   result |= S_IRGRP;
-        if (is_permission_enabled(perms, permission::group_write))  result |= S_IWGRP;
-        if (is_permission_enabled(perms, permission::group_exec))   result |= S_IXGRP;
-        if (is_permission_enabled(perms, permission::others_read))  result |= S_IROTH;
-        if (is_permission_enabled(perms, permission::others_write)) result |= S_IWOTH;
-        if (is_permission_enabled(perms, permission::others_exec))  result |= S_IXOTH;
-
-        return result;
+        using platform::swap;
+        swap(h, _h);
     }
 
 public:
-    error_code open (std::string const & path
-            , open_mode_flags oflags
-            , permissions perms = owner_read | owner_write)
-    {
-        int native_oflags = 0;
-        mode_t native_mode = 0;
-
-        if ((oflags & write_only) && (oflags & read_only)) {
-            native_oflags |= O_RDWR;
-            native_oflags |= O_CREAT;
-            native_mode |= to_native_perms(perms);
-        } else if (oflags & write_only) {
-            native_oflags |= O_WRONLY;
-            native_oflags |= O_CREAT;
-            native_mode |= to_native_perms(perms);
-        } else if (oflags & read_only) {
-            native_oflags |= O_RDONLY;
-        }
-
-        if (oflags & non_blocking)
-            native_oflags |= O_NONBLOCK;
-
-        if (oflags & truncate)
-            native_oflags |= O_TRUNC;
-
-        int fd = -1;
-
-        if (native_mode)
-            fd = ::open(path.c_str(), native_oflags, native_mode);
-        else
-            fd = ::open(path.c_str(), native_oflags);
-
-        error_code ec;
-
-        if (fd >= 0) {
-            _fd = fd;
-        } else {
-            ec = get_last_system_error();
-        }
-
-        return ec;
-    }
-
-public:
-    file () : basic_file() {}
+    file () : basic_device() {}
     file (file const &) = delete;
     file & operator = (file const &) = delete;
 
-    file (file && rhs) : basic_file()
+    file (file && rhs) : basic_device()
     {
         swap(rhs);
     }
@@ -112,44 +58,64 @@ public:
 
     virtual ~file () {}
 
-    device_type type () const noexcept override
+    virtual device_type type () const noexcept override
     {
         return device_type::file;
     }
 
-    // Inherited from basic_file.
-    // open_mode_flags open_mode () const noexcept override
+    virtual open_mode_flags open_mode () const noexcept override
+    {
+        return platform::open_mode(& _h);
+    }
 
-    // Inherited from basic_file.
-    // error_code close () override
+    virtual error_code close () override
+    {
+        return platform::close(& _h);
+    }
 
-    // Inherited from basic_file.
-    // bool opened () const noexcept override
+    virtual bool opened () const noexcept override
+    {
+        return platform::opened(& _h);
+    }
 
-    // Inherited from basic_file.
-    // ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
+    virtual ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
+    {
+        return platform::read(& _h, bytes, n, ec);
+    }
 
-    // Inherited from basic_file.
-    // ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    virtual ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    {
+        return platform::write(& _h, bytes, n, ec);
+    }
+
+    void swap (file & rhs)
+    {
+        using platform::swap;
+        swap(_h, rhs._h);
+    }
+
+    friend device make_file (std::string const & path
+        , open_mode_flags oflags
+        , permissions perms
+        , error_code & ec);
 };
 
 /**
  * Makes file device.
  */
-device make_file (std::string const & path
-        , open_mode_flags oflags
-        , permissions perms
-        , error_code & ec)
+inline device make_file (std::string const & path
+    , open_mode_flags oflags
+    , permissions perms
+    , error_code & ec)
 {
-    file f;
-    ec = f.open(path, oflags, perms);
-    return ec ? device{} : device{new file(std::move(f))};
+    platform::device_handle h = unix_ns::open(path, oflags, perms, ec);
+    return ec ? device{} : device{new file(std::move(h))};
 }
 
 /**
  * Makes file device.
  */
-device make_file (std::string const & path
+inline device make_file (std::string const & path
         , open_mode_flags oflags
         , error_code & ec)
 {
@@ -162,7 +128,7 @@ device make_file (std::string const & path
 /**
  * Makes file device.
  */
-device make_file (std::string const & path
+inline device make_file (std::string const & path
         , open_mode_flags oflags
         , permissions perms)
 {
@@ -175,7 +141,7 @@ device make_file (std::string const & path
 /**
  * Makes file device.
  */
-device make_file (std::string const & path
+inline device make_file (std::string const & path
         , open_mode_flags oflags)
 {
     error_code ec;

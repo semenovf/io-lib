@@ -5,6 +5,40 @@
 namespace pfs {
 namespace io {
 
+enum class connection_mode {
+      connectionless = 1
+    , connection_oriented
+};
+
+class socket_finalizer
+{
+    int * _fd = nullptr;
+    bool _shutdown = false;
+
+public:
+    socket_finalizer (int * fd
+            , bool force_shutdown)
+        : _fd(fd)
+        , _shutdown(force_shutdown)
+    {}
+
+    error_code operator () ()
+    {
+        error_code ec;
+
+        if (*_fd > 0) {
+            if (_shutdown)
+                shutdown(*_fd, SHUT_RDWR);
+
+            if (::close(*_fd) < 0)
+                ec = get_last_system_error();
+        }
+
+        *_fd = -1;
+        return ec;
+    }
+};
+
 class basic_socket : public basic_file
 {
 protected:
@@ -13,21 +47,6 @@ protected:
 
 public:
     virtual ~basic_socket () {}
-
-    error_code close () override
-    {
-        error_code ec;
-
-        if (_fd > 0) {
-            shutdown(_fd, SHUT_RDWR);
-
-            if (::close(_fd) < 0)
-                ec = get_last_system_error();
-        }
-
-        _fd = -1;
-        return ec;
-    }
 
     /**
      * @return -1 on error.

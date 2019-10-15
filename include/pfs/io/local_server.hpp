@@ -138,15 +138,7 @@ public:
 
     error_code close ()
     {
-        error_code ec;
-
-        if (_fd > 0) {
-            if (::close(_fd) < 0)
-                ec = get_last_system_error();
-        }
-
-        _fd = -1;
-        return ec;
+        return socket_finalizer{& _fd, false}();
     }
 
     device accept (error_code & ec)

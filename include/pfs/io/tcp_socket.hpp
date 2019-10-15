@@ -74,7 +74,7 @@ public:
 
     virtual ~tcp_socket () {}
 
-    device_type type () const noexcept override
+    virtual device_type type () const noexcept override
     {
         return device_type::tcp_socket;
     }
@@ -82,8 +82,10 @@ public:
     // Inherited from basic_file.
     // open_mode_flags open_mode () const noexcept override
 
-    // Inherited from basic_socket.
-    // error_code close () override
+    virtual error_code close () override
+    {
+        return socket_finalizer{& _fd, true}();
+    }
 
     // Inherited from basic_file.
     // bool opened () const noexcept override
