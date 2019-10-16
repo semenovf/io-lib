@@ -5,68 +5,55 @@
 //
 // Changelog:
 //      2019.09.29 Initial version
+//      2019.10.16 Refactored supporting platform-agnostic implementation
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "basic_socket.hpp"
-#include <cstring>
-#include <sys/un.h>
-#include <sys/socket.h>
+#include "operationsystem.h"
+#include "device.hpp"
+
+#if defined(PFS_OS_UNIX)
+#   include "unix_socket.hpp"
+#else
+#   error "Unsupported platform"
+#endif
 
 namespace pfs {
 namespace io {
 
-class local_socket : public basic_socket
+namespace platform {
+
+#if defined(PFS_OS_UNIX)
+    using device_handle = unix_ns::device_handle;
+    using unix_ns::open_mode;
+    using unix_ns::open_local_socket;
+    using unix_ns::close_socket;
+    using unix_ns::opened;
+    using unix_ns::read_socket;
+    using unix_ns::write_socket;
+    using unix_ns::swap;
+#endif
+
+} // platform
+
+class local_socket : public basic_device
 {
+    platform::device_handle _h;
+
 protected:
-    local_socket (int fd) : basic_socket(fd) {}
-
-    error_code open (std::string const & name, bool nonblocking)
+    local_socket (platform::device_handle && h)
     {
-        sockaddr_un saddr;
-
-        if (sizeof(saddr.sun_path) < name.size() + 1)
-            return make_error_code(errc::invalid_argument);
-
-        int socktype = SOCK_STREAM;
-
-        if (nonblocking)
-            socktype |= SOCK_NONBLOCK;
-
-        error_code ec;
-        int fd = ::socket(AF_LOCAL, socktype, 0);
-
-        if (fd >= 0) {
-            memset(& saddr, 0, sizeof(saddr));
-
-            saddr.sun_family = AF_LOCAL;
-            memcpy(saddr.sun_path, name.c_str(), name.size());
-            saddr.sun_path[name.size()] = '\0';
-
-            int rc = ::connect(fd
-                    , reinterpret_cast<sockaddr *>(& saddr)
-                    , sizeof(saddr));
-
-            if (rc < 0) {
-                ec = get_last_system_error();
-                ::close(fd);
-            } else {
-                _fd = fd;
-            }
-        } else {
-            ec = get_last_system_error();
-        }
-
-        return ec;
+        using platform::swap;
+        swap(h, _h);
     }
 
 public:
-    local_socket () {}
+    local_socket () : basic_device() {}
     local_socket (local_socket const &) = delete;
     local_socket & operator = (local_socket const &) = delete;
 
-    local_socket (local_socket && rhs)
+    local_socket (local_socket && rhs) : basic_device()
     {
-       swap(rhs);
+        swap(rhs);
     }
 
     local_socket & operator = (local_socket && rhs)
@@ -77,29 +64,46 @@ public:
         return *this;
     }
 
-    virtual ~local_socket () {}
+    virtual ~local_socket ()
+    {
+        close();
+    }
 
-    device_type type () const noexcept override
+    virtual device_type type () const noexcept override
     {
         return device_type::local_socket;
     }
 
-    // Inherited from basic_file.
-    // open_mode_flags open_mode () const noexcept override
-
-    error_code close () override
+    virtual open_mode_flags open_mode () const noexcept override
     {
-        return socket_finalizer{& _fd, true}();
+        return platform::open_mode(& _h);
     }
 
-    // Inherited from basic_file.
-    // bool opened () const noexcept override
+    virtual error_code close () override
+    {
+        return platform::close_socket(& _h, true);
+    }
 
-    // Inherited from basic_socket.
-    // ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
+    virtual bool opened () const noexcept override
+    {
+        return platform::opened(& _h);
+    }
 
-    // Inherited from basic_socket.
-    // ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
+    {
+        return platform::read_socket(& _h, bytes, n, ec);
+    }
+
+    ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    {
+        return platform::write_socket(& _h, bytes, n, ec);
+    }
+
+    void swap (local_socket & rhs)
+    {
+        using platform::swap;
+        swap(_h, rhs._h);
+    }
 
     friend device make_local_socket (std::string const & name
             , bool nonblocking
@@ -113,9 +117,8 @@ inline device make_local_socket (std::string const & name
         , bool nonblocking
         , error_code & ec)
 {
-    local_socket sock;
-    ec = sock.open(name, nonblocking);
-    return ec ? device{} : device{new local_socket(std::move(sock))};
+    platform::device_handle h = platform::open_local_socket(name, nonblocking, ec);
+    return ec ? device{} : device{new local_socket(std::move(h))};
 }
 
 /**

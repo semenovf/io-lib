@@ -1,3 +1,12 @@
+////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2019 Vladislav Trifochkin
+//
+// This file is part of [pfs-io](https://github.com/semenovf/pfs-io) library.
+//
+// Changelog:
+//      2019.09.29 Initial version
+//      2019.10.15 Refactored supporting platform-agnostic implementation
+////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "operationsystem.h"
 #include "device.hpp"
@@ -17,12 +26,13 @@ namespace platform {
 
 #if defined(PFS_OS_UNIX)
     using device_handle = unix_ns::device_handle;
-    using unix_ns::swap;
     using unix_ns::open_mode;
-    using unix_ns::close;
+    using unix_ns::open_file;
+    using unix_ns::close_file;
     using unix_ns::opened;
-    using unix_ns::read;
-    using unix_ns::write;
+    using unix_ns::read_file;
+    using unix_ns::write_file;
+    using unix_ns::swap;
 #endif
 
 } // platform
@@ -56,7 +66,10 @@ public:
         return *this;
     }
 
-    virtual ~file () {}
+    virtual ~file ()
+    {
+        close();
+    }
 
     virtual device_type type () const noexcept override
     {
@@ -70,7 +83,7 @@ public:
 
     virtual error_code close () override
     {
-        return platform::close(& _h);
+        return platform::close_file(& _h);
     }
 
     virtual bool opened () const noexcept override
@@ -80,12 +93,12 @@ public:
 
     virtual ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
     {
-        return platform::read(& _h, bytes, n, ec);
+        return platform::read_file(& _h, bytes, n, ec);
     }
 
     virtual ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
     {
-        return platform::write(& _h, bytes, n, ec);
+        return platform::write_file(& _h, bytes, n, ec);
     }
 
     void swap (file & rhs)
@@ -108,7 +121,7 @@ inline device make_file (std::string const & path
     , permissions perms
     , error_code & ec)
 {
-    platform::device_handle h = unix_ns::open(path, oflags, perms, ec);
+    platform::device_handle h = platform::open_file(path, oflags, perms, ec);
     return ec ? device{} : device{new file(std::move(h))};
 }
 

@@ -5,20 +5,14 @@ add_library(CATCH_OBJLIB OBJECT catch-main.cpp)
 # Optional: shared libraries need PIC
 set_property(TARGET CATCH_OBJLIB PROPERTY POSITION_INDEPENDENT_CODE 1)
 
-#
-# Add unit test targets
-#
+################################################################################
+# Unit test targets
+################################################################################
 list(APPEND MY_TEST_TARGETS buffer)
 list(APPEND MY_TEST_TARGETS file)
-# list(APPEND MY_TEST_TARGETS local_socket)
+list(APPEND MY_TEST_TARGETS local_socket)
 # list(APPEND MY_TEST_TARGETS tcp_socket)
-
-################################################################################
-
-# set(test-integral_SOURCES
-#     integral/test.cpp
-#     integral/parse_integral_part.cpp
-#     integral/to_integral.cpp)
+# list(APPEND MY_TEST_TARGETS udp_socket)
 
 add_library(catch SHARED $<TARGET_OBJECTS:CATCH_OBJLIB>)
 

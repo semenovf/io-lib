@@ -5,6 +5,7 @@
 //
 // Changelog:
 //      2019.10.08 Initial version
+//      2019.10.16 Refactored supporting platform-agnostic implementation
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "local_socket.hpp"
@@ -13,6 +14,16 @@
 namespace pfs {
 namespace io {
 
+namespace platform {
+
+#if defined(PFS_OS_UNIX)
+    using unix_ns::open_local_server;
+    using unix_ns::close_socket;
+    using unix_ns::accept_local_socket;
+#endif
+
+} // platform
+
 class local_server;
 
 class local_peer : public local_socket
@@ -20,7 +31,9 @@ class local_peer : public local_socket
     friend class local_server;
 
 protected:
-    local_peer (int fd) : local_socket(fd) {}
+    local_peer (platform::device_handle && h)
+        : local_socket{std::forward<platform::device_handle>(h)}
+    {}
 
 public:
     local_peer (local_peer const & rhs) = delete;
@@ -44,86 +57,23 @@ public:
 
 class local_server
 {
-    int _fd = -1;
+    platform::device_handle _h;
 
 protected:
-    error_code open (std::string const & name
-            , bool nonblocking
-            , int max_pending_connections = 30)
+    local_server (platform::device_handle && h)
     {
-        sockaddr_un saddr;
-
-        if (sizeof(saddr.sun_path) < name.size() + 1)
-            return make_error_code(errc::invalid_argument);
-
-        int socktype = SOCK_STREAM;
-        socktype |= SOCK_CLOEXEC;
-
-        if (nonblocking)
-            socktype |= SOCK_NONBLOCK;
-
-        error_code ec;
-
-        int fd = -1;
-
-        do {
-            fd = ::socket(AF_LOCAL, socktype, 0);
-
-            if (fd < 0) {
-                ec = get_last_system_error();
-                break;
-            }
-
-            memset(& saddr, 0, sizeof(saddr));
-
-            saddr.sun_family = AF_LOCAL;
-            memcpy(saddr.sun_path, name.c_str(), name.size());
-            saddr.sun_path[name.size()] = '\0';
-
-            // TODO File deletion must be more reasonable
-            int rc = unlink(saddr.sun_path);
-
-            rc = ::bind(fd
-                    , reinterpret_cast<sockaddr *>(& saddr)
-                    , sizeof(saddr));
-
-            if (rc < 0) {
-                ec = get_last_system_error();
-                break;
-            }
-
-            rc = listen(fd, max_pending_connections);
-
-            if (rc < 0) {
-                ec = get_last_system_error();
-                break;
-            }
-
-            _fd = fd;
-        } while (false);
-
-        if (ec && fd < 0) {
-            ::close(fd);
-        }
-
-        return ec;
-    }
-
-    void swap (local_server & rhs)
-    {
-        using std::swap;
-        swap(_fd, rhs._fd);
+        using platform::swap;
+        swap(h, _h);
     }
 
 public:
     local_server () {}
-
     local_server (local_server const &) = delete;
     local_server & operator = (local_server const &) = delete;
 
     local_server (local_server && rhs)
     {
-       swap(rhs);
+        swap(rhs);
     }
 
     local_server & operator = (local_server && rhs)
@@ -134,28 +84,26 @@ public:
         return *this;
     }
 
-    ~local_server () {}
+    virtual ~local_server ()
+    {
+        close();
+    }
 
     error_code close ()
     {
-        return socket_finalizer{& _fd, false}();
+        return platform::close_socket(& _h, false);
     }
 
     device accept (error_code & ec)
     {
-        sockaddr_un peer_addr;
-        socklen_t peer_addr_len = sizeof(peer_addr);
+        platform::device_handle h = platform::accept_local_socket(& _h, ec);
+        return ec ? device{} : device{new local_peer{std::move(h)}};
+    }
 
-        int peer_fd = ::accept(_fd
-                , reinterpret_cast<sockaddr *> (& peer_addr)
-                , & peer_addr_len);
-
-        if (peer_fd < 0) {
-            ec = get_last_system_error();
-            return device{};
-        }
-
-        return device{new local_peer(peer_fd)};
+    void swap (local_server & rhs)
+    {
+        using platform::swap;
+        swap(_h, rhs._h);
     }
 
     friend local_server make_local_server (std::string const & name
@@ -169,14 +117,16 @@ inline local_server make_local_server (std::string const & name
         , int max_pending_connections
         , error_code & ec)
 {
-    local_server server;
-    ec = server.open(name, nonblocking, max_pending_connections);
-    return server;
+    platform::device_handle h = platform::open_local_server(name
+            , nonblocking
+            , max_pending_connections
+            , ec);
+    return ec ? local_server{} : local_server{std::move(h)};
 }
 
 inline local_server make_local_server (std::string const & name
-            , bool nonblocking
-            , error_code & ec)
+        , bool nonblocking
+        , error_code & ec)
 {
     return make_local_server(name, nonblocking, 30, ec);
 }

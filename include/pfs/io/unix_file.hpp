@@ -1,3 +1,11 @@
+////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2019 Vladislav Trifochkin
+//
+// This file is part of [pfs-io](https://github.com/semenovf/pfs-io) library.
+//
+// Changelog:
+//      2019.10.15 Initial version
+////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "device.hpp"
 #include "permissions.hpp"
@@ -85,9 +93,9 @@ inline open_mode_flags open_mode (device_handle const * h) noexcept
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-inline device_handle open (std::string const & path
+inline device_handle open_file (std::string const & path
         , open_mode_flags oflags
-        , permissions perms// = owner_read | owner_write)
+        , permissions perms
         , error_code & ec)
 {
     int native_oflags = 0;
@@ -125,7 +133,7 @@ inline device_handle open (std::string const & path
     return device_handle{};
 }
 
-inline error_code close (device_handle * h)
+inline error_code close_file (device_handle * h)
 {
     error_code ec;
 
@@ -146,7 +154,7 @@ inline bool opened (device_handle const * h) noexcept
     return h->fd >= 0;
 }
 
-inline ssize_t read (device_handle * h
+inline ssize_t read_file (device_handle * h
         , char * bytes
         , size_t n
         , error_code & ec) noexcept
@@ -159,7 +167,7 @@ inline ssize_t read (device_handle * h
     return sz;
 }
 
-inline ssize_t write (device_handle * h
+inline ssize_t write_file (device_handle * h
         , char const * bytes
         , size_t n
         , error_code & ec) noexcept
