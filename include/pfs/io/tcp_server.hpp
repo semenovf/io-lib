@@ -5,13 +5,24 @@
 //
 // Changelog:
 //      2019.10.09 Initial version
+//      2019.10.18 Refactored supporting platform-agnostic implementation
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "tcp_socket.hpp"
-#include <unistd.h>
 
 namespace pfs {
 namespace io {
+
+namespace platform {
+
+#if defined(PFS_OS_UNIX)
+    using device_handle = unix_ns::device_handle;
+    using unix_ns::open_tcp_server;
+    using unix_ns::close_socket;
+    using unix_ns::accept_tcp_socket;
+#endif
+
+} // platform
 
 class tcp_server;
 
@@ -20,7 +31,9 @@ class tcp_peer : public tcp_socket
     friend class tcp_server;
 
 protected:
-    tcp_peer (int fd) : tcp_socket(fd) {}
+    tcp_peer (platform::device_handle && h)
+        : tcp_socket(std::forward<platform::device_handle>(h))
+    {}
 
 public:
     tcp_peer (tcp_peer const & rhs) = delete;
@@ -44,39 +57,23 @@ public:
 
 class tcp_server
 {
-    int _fd = -1;
+    platform::device_handle _h;
 
 protected:
-    error_code open (std::string const & servername
-            , uint16_t port
-            , bool nonblocking
-            , int max_pending_connections = 30)
+    tcp_server (platform::device_handle && h)
     {
-        inet_socket_initializer socket_initializer(& _fd
-                , SOCK_STREAM
-                , servername
-                , port
-                , nonblocking
-                , max_pending_connections);
-        auto ec = socket_initializer.open();
-        return ec;
-    }
-
-    void swap (tcp_server & rhs)
-    {
-        using std::swap;
-        swap(_fd, rhs._fd);
+        using platform::swap;
+        swap(h, _h);
     }
 
 public:
     tcp_server () {}
-
     tcp_server (tcp_server const &) = delete;
     tcp_server & operator = (tcp_server const &) = delete;
 
     tcp_server (tcp_server && rhs)
     {
-       swap(rhs);
+        swap(rhs);
     }
 
     tcp_server & operator = (tcp_server && rhs)
@@ -87,28 +84,26 @@ public:
         return *this;
     }
 
-    ~tcp_server () {}
+    virtual ~tcp_server ()
+    {
+        close();
+    }
 
     error_code close ()
     {
-        return socket_finalizer{& _fd, false}();
+        return platform::close_socket(& _h, false);
     }
 
     device accept (error_code & ec)
     {
-        sockaddr_in peer_addr;
-        socklen_t peer_addr_len = sizeof(peer_addr);
+        platform::device_handle h = platform::accept_tcp_socket(& _h, ec);
+        return ec ? device{} : device{new tcp_peer{std::move(h)}};
+    }
 
-        int peer_fd = ::accept(_fd
-                , reinterpret_cast<sockaddr *> (& peer_addr)
-                , & peer_addr_len);
-
-        if (peer_fd < 0) {
-            ec = get_last_system_error();
-            return device{};
-        }
-
-        return device{new tcp_peer(peer_fd)};
+    void swap (tcp_server & rhs)
+    {
+        using platform::swap;
+        swap(_h, rhs._h);
     }
 
     friend tcp_server make_tcp_server (std::string const & servername
@@ -124,9 +119,12 @@ inline tcp_server make_tcp_server (std::string const & servername
         , int max_pending_connections
         , error_code & ec)
 {
-    tcp_server server;
-    ec = server.open(servername, port, nonblocking, max_pending_connections);
-    return server;
+    platform::device_handle h = platform::open_tcp_server(servername
+            , port
+            , nonblocking
+            , max_pending_connections
+            , ec);
+    return ec ? tcp_server{} : tcp_server{std::move(h)};
 }
 
 inline tcp_server make_tcp_server (std::string const & servername

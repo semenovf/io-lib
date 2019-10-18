@@ -148,6 +148,3 @@ inline local_server make_local_server (std::string const & name
 }
 
 }} // pfs::io
-
-
-

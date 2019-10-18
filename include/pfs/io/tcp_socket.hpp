@@ -5,63 +5,55 @@
 //
 // Changelog:
 //      2019.10.09 Initial version
+//      2019.10.16 Refactored supporting platform-agnostic implementation
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "inet_socket.hpp"
+#include "operationsystem.h"
+#include "device.hpp"
+
+#if defined(PFS_OS_UNIX)
+#   include "unix_socket.hpp"
+#else
+#   error "Unsupported platform"
+#endif
 
 namespace pfs {
 namespace io {
 
-//       reuse_addr   = 0x0001 // SO_REUSEADDR
-//, so_type       = 0x00000002 // SO_TYPE
-// 0x00000004 //#define SO_ERROR
-// 0x00000008 //#define SO_DONTROUTE
-// 0x00000010 //#define SO_BROADCAST
-// 0x00000020 //#define SO_SNDBUF
-// 0x00000040 //#define SO_RCVBUF
-// 0x00000080 //#define SO_SNDBUFFORCE
-// 0x00000100 //#define SO_RCVBUFFORCE
-//     , keep_alive = 0x0200 // SO_KEEPALIVE
-//#define SO_OOBINLINE	10
-//#define SO_NO_CHECK	11
-//#define SO_PRIORITY	12
-//#define SO_LINGER	13
-//#define SO_BSDCOMPAT	14
-//#define SO_REUSEPORT	15
-//#ifndef SO_PASSCRED /* powerpc only differs in these */
-//#define SO_PASSCRED	16
-//#define SO_PEERCRED	17
-//#define SO_RCVLOWAT	18
-//#define SO_SNDLOWAT	19
-//#define SO_RCVTIMEO	20
-//#define SO_SNDTIMEO	21
+namespace platform {
 
-class tcp_socket : public basic_socket
+#if defined(PFS_OS_UNIX)
+    using device_handle = unix_ns::device_handle;
+    using unix_ns::open_mode;
+    using unix_ns::open_tcp_socket;
+    using unix_ns::close_socket;
+    using unix_ns::opened;
+    using unix_ns::read_socket;
+    using unix_ns::write_socket;
+    using unix_ns::enable_keep_alive;
+    using unix_ns::swap;
+#endif
+
+} // platform
+
+class tcp_socket : public basic_device
 {
+    platform::device_handle _h;
+
 protected:
-    tcp_socket (int fd) : basic_socket(fd) {}
-
-    error_code open (std::string const & servername
-            , uint16_t port
-            , bool nonblocking)
+    tcp_socket (platform::device_handle && h)
     {
-        inet_socket_initializer socket_initializer(& _fd
-                , SOCK_STREAM
-                , servername
-                , port
-                , nonblocking);
-        auto ec = socket_initializer.open();
-        return ec;
+        using platform::swap;
+        swap(h, _h);
     }
-
 public:
-    tcp_socket () : basic_socket{} {}
+    tcp_socket () : basic_device() {}
     tcp_socket (tcp_socket const &) = delete;
     tcp_socket & operator = (tcp_socket const &) = delete;
 
-    tcp_socket (tcp_socket && rhs)
+    tcp_socket (tcp_socket && rhs) : basic_device()
     {
-       swap(rhs);
+        swap(rhs);
     }
 
     tcp_socket & operator = (tcp_socket && rhs)
@@ -72,35 +64,50 @@ public:
         return *this;
     }
 
-    virtual ~tcp_socket () {}
+    virtual ~tcp_socket ()
+    {
+        close();
+    }
 
     virtual device_type type () const noexcept override
     {
         return device_type::tcp_socket;
     }
 
-    // Inherited from basic_file.
-    // open_mode_flags open_mode () const noexcept override
+    virtual open_mode_flags open_mode () const noexcept override
+    {
+        return platform::open_mode(& _h);
+    }
 
     virtual error_code close () override
     {
-        return socket_finalizer{& _fd, true}();
+        return platform::close_socket(& _h, true);
     }
 
-    // Inherited from basic_file.
-    // bool opened () const noexcept override
+    virtual bool opened () const noexcept override
+    {
+        return platform::opened(& _h);
+    }
 
-    // Inherited from basic_socket.
-    // ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
+    ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
+    {
+        return platform::read_socket(& _h, bytes, n, ec);
+    }
 
-    // Inherited from basic_socket.
-    // ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    {
+        return platform::write_socket(& _h, bytes, n, ec);
+    }
+
+    void swap (tcp_socket & rhs)
+    {
+        using platform::swap;
+        swap(_h, rhs._h);
+    }
 
     error_code enable_keep_alive (bool enable)
     {
-        int optval = enable ? 1 : 0;
-        int rc = setsockopt(_fd, SOL_SOCKET, SO_KEEPALIVE, & optval, sizeof(optval));
-        return rc < 0 ? get_last_system_error() : error_code{};
+        return platform::enable_keep_alive(& _h, enable);
     }
 
     friend device make_tcp_socket (std::string const & servername
@@ -118,8 +125,11 @@ inline device make_tcp_socket (std::string const & servername
             , error_code & ec)
 {
     tcp_socket sock;
-    ec = sock.open(servername, port, nonblocking);
-    return ec ? device{} : device{new tcp_socket(std::move(sock))};
+    platform::device_handle h = platform::open_tcp_socket(servername
+            , port
+            , nonblocking
+            , ec);
+    return ec ? device{} : device{new tcp_socket(std::move(h))};
 }
 
 /**
