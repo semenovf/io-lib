@@ -21,28 +21,34 @@ namespace pfs {
 namespace io {
 
 namespace platform {
+namespace local {
 
 #if defined(PFS_OS_UNIX)
     using device_handle = unix_ns::device_handle;
-    using unix_ns::open_mode;
-    using unix_ns::open_local_socket;
-    using unix_ns::close_socket;
-    using unix_ns::opened;
-    using unix_ns::read_socket;
-    using unix_ns::write_socket;
+    using unix_ns::local::open_mode;
+    using unix_ns::local::opened;
+    using unix_ns::local::open;
+    using unix_ns::local::close;
+    using unix_ns::local::read;
+    using unix_ns::local::write;
+    using unix_ns::local::has_pending_data;
     using unix_ns::swap;
 #endif
 
-} // platform
+}} // platform::local
 
 class local_socket : public basic_device
 {
-    platform::device_handle _h;
+public:
+    using device_handle = platform::local::device_handle;
 
 protected:
-    local_socket (platform::device_handle && h)
+    device_handle _h;
+
+protected:
+    local_socket (device_handle && h)
     {
-        using platform::swap;
+        using platform::local::swap;
         swap(h, _h);
     }
 
@@ -76,32 +82,37 @@ public:
 
     virtual open_mode_flags open_mode () const noexcept override
     {
-        return platform::open_mode(& _h);
+        return platform::local::open_mode(& _h);
     }
 
     virtual error_code close () override
     {
-        return platform::close_socket(& _h, true);
+        return platform::local::close(& _h, true);
     }
 
     virtual bool opened () const noexcept override
     {
-        return platform::opened(& _h);
+        return platform::local::opened(& _h);
     }
 
-    ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
+    virtual bool has_pending_data () noexcept override
     {
-        return platform::read_socket(& _h, bytes, n, ec);
+        return platform::local::has_pending_data(& _h);
     }
 
-    ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    virtual ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
     {
-        return platform::write_socket(& _h, bytes, n, ec);
+        return platform::local::read(& _h, bytes, n, ec);
+    }
+
+    virtual ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    {
+        return platform::local::write(& _h, bytes, n, ec);
     }
 
     void swap (local_socket & rhs)
     {
-        using platform::swap;
+        using platform::local::swap;
         swap(_h, rhs._h);
     }
 
@@ -117,7 +128,7 @@ inline device make_local_socket (std::string const & name
         , bool nonblocking
         , error_code & ec)
 {
-    platform::device_handle h = platform::open_local_socket(name, nonblocking, ec);
+    local_socket::device_handle h = platform::local::open(name, nonblocking, ec);
     return ec ? device{} : device{new local_socket(std::move(h))};
 }
 

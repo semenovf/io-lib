@@ -14,15 +14,17 @@ namespace pfs {
 namespace io {
 
 namespace platform {
+namespace tcp {
 
 #if defined(PFS_OS_UNIX)
     using device_handle = unix_ns::device_handle;
-    using unix_ns::open_tcp_server;
-    using unix_ns::close_socket;
-    using unix_ns::accept_tcp_socket;
+    using unix_ns::tcp::close;
+    using unix_ns::tcp::open_server;
+    using unix_ns::tcp::accept;
+    using unix_ns::swap;
 #endif
 
-} // platform
+}} // platform::tcp
 
 class tcp_server;
 
@@ -31,8 +33,8 @@ class tcp_peer : public tcp_socket
     friend class tcp_server;
 
 protected:
-    tcp_peer (platform::device_handle && h)
-        : tcp_socket(std::forward<platform::device_handle>(h))
+    tcp_peer (platform::tcp::device_handle && h)
+        : tcp_socket(std::forward<platform::tcp::device_handle>(h))
     {}
 
 public:
@@ -57,12 +59,16 @@ public:
 
 class tcp_server
 {
-    platform::device_handle _h;
+public:
+    using device_handle = platform::tcp::device_handle;
 
 protected:
-    tcp_server (platform::device_handle && h)
+    device_handle _h;
+
+protected:
+    tcp_server (device_handle && h)
     {
-        using platform::swap;
+        using platform::tcp::swap;
         swap(h, _h);
     }
 
@@ -91,18 +97,18 @@ public:
 
     error_code close ()
     {
-        return platform::close_socket(& _h, false);
+        return platform::tcp::close(& _h, false);
     }
 
     device accept (error_code & ec)
     {
-        platform::device_handle h = platform::accept_tcp_socket(& _h, ec);
+        device_handle h = platform::tcp::accept(& _h, ec);
         return ec ? device{} : device{new tcp_peer{std::move(h)}};
     }
 
     void swap (tcp_server & rhs)
     {
-        using platform::swap;
+        using platform::tcp::swap;
         swap(_h, rhs._h);
     }
 
@@ -119,7 +125,7 @@ inline tcp_server make_tcp_server (std::string const & servername
         , int max_pending_connections
         , error_code & ec)
 {
-    platform::device_handle h = platform::open_tcp_server(servername
+    tcp_server::device_handle h = platform::tcp::open_server(servername
             , port
             , nonblocking
             , max_pending_connections

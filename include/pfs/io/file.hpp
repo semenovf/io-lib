@@ -23,28 +23,30 @@ namespace pfs {
 namespace io {
 
 namespace platform {
+namespace file {
 
 #if defined(PFS_OS_UNIX)
     using device_handle = unix_ns::device_handle;
-    using unix_ns::open_mode;
-    using unix_ns::open_file;
-    using unix_ns::close_file;
-    using unix_ns::opened;
-    using unix_ns::read_file;
-    using unix_ns::write_file;
+    using unix_ns::file::open_mode;
+    using unix_ns::file::open;
+    using unix_ns::file::close;
+    using unix_ns::file::opened;
+    using unix_ns::file::read;
+    using unix_ns::file::write;
+    using unix_ns::file::has_pending_data;
     using unix_ns::swap;
 #endif
 
-} // platform
+}} // platform::file
 
 class file : public basic_device
 {
-    platform::device_handle _h;
+    platform::file::device_handle _h;
 
 protected:
-    file (platform::device_handle && h)
+    file (platform::file::device_handle && h)
     {
-        using platform::swap;
+        using platform::file::swap;
         swap(h, _h);
     }
 
@@ -78,32 +80,37 @@ public:
 
     virtual open_mode_flags open_mode () const noexcept override
     {
-        return platform::open_mode(& _h);
+        return platform::file::open_mode(& _h);
+    }
+
+    virtual bool has_pending_data () noexcept
+    {
+        return platform::file::has_pending_data(& _h);
     }
 
     virtual error_code close () override
     {
-        return platform::close_file(& _h);
+        return platform::file::close(& _h);
     }
 
     virtual bool opened () const noexcept override
     {
-        return platform::opened(& _h);
+        return platform::file::opened(& _h);
     }
 
     virtual ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
     {
-        return platform::read_file(& _h, bytes, n, ec);
+        return platform::file::read(& _h, bytes, n, ec);
     }
 
     virtual ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
     {
-        return platform::write_file(& _h, bytes, n, ec);
+        return platform::file::write(& _h, bytes, n, ec);
     }
 
     void swap (file & rhs)
     {
-        using platform::swap;
+        using platform::file::swap;
         swap(_h, rhs._h);
     }
 
@@ -121,7 +128,7 @@ inline device make_file (std::string const & path
     , permissions perms
     , error_code & ec)
 {
-    platform::device_handle h = platform::open_file(path, oflags, perms, ec);
+    platform::file::device_handle h = platform::file::open(path, oflags, perms, ec);
     return ec ? device{} : device{new file(std::move(h))};
 }
 

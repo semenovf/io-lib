@@ -40,14 +40,13 @@ enum class device_type
       unknown = 0
     , null
     , buffer
-    , stream
+//     , stream
     , file
+    , local_socket
+    , local_peer
     , tcp_socket
     , tcp_peer
     , udp_socket
-    , udp_peer
-    , local_socket
-    , local_peer
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -186,7 +185,6 @@ inline std::error_code get_last_system_error ()
 #endif // defined(PFS_OS_WIN)
 }
 
-
 /**
  * @class pfs::io::exception
  */
@@ -206,16 +204,117 @@ public:
 
     virtual open_mode_flags open_mode () const noexcept = 0;
 
-//     virtual ssize_t available () const = 0;
-//
-//     bool at_end () const
-//     {
-//         return this->available() == ssize_t(0);
-//     }
+    virtual bool has_pending_data () noexcept = 0;
 
     virtual ssize_t read (char * bytes, size_t n, error_code & ec) noexcept = 0;
 
     virtual ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept = 0;
+
+    virtual error_code close () = 0;
+
+    virtual bool opened () const noexcept = 0;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+//
+////////////////////////////////////////////////////////////////////////////////
+template <typename T>
+using unique_ptr = std::unique_ptr<T>;
+
+class device
+{
+private:
+    unique_ptr<basic_device> _d;
+
+public:
+    device () {}
+    device (basic_device * d) : _d(d) {}
+    device (device &&) = default;
+    device & operator = (device &&) = default;
+
+    device (device const &) = delete;
+    device & operator = (device const &) = delete;
+
+    ~device () {
+        if (opened())
+            close();
+    }
+
+    inline bool is_null ()  const noexcept
+    {
+        return _d.get() == nullptr;
+    }
+
+    inline device_type type () const noexcept
+    {
+        return _d->type();
+    }
+
+    inline open_mode_flags open_mode () const noexcept
+    {
+        return _d->open_mode();
+    }
+
+    inline bool has_pending_data () noexcept
+    {
+        return _d->has_pending_data();
+    }
+
+    inline bool is_readable () const noexcept
+    {
+        return _d->open_mode() & read_only;
+    }
+
+    inline bool is_writable () const noexcept
+    {
+        return this->open_mode() & write_only;
+    }
+
+    inline bool is_nonblocking () const noexcept
+    {
+        return this->open_mode() & non_blocking;
+    }
+
+    inline error_code close ()
+    {
+        return _d->close();
+    }
+
+    inline bool opened () const noexcept
+    {
+        return _d && _d->opened();
+    }
+
+    inline ssize_t read (char * bytes, size_t n, error_code & ec) noexcept
+    {
+        return _d->read(bytes, n, ec);
+    }
+
+    inline ssize_t read (char * bytes, size_t n)
+    {
+        error_code ec;
+        ssize_t r = read(bytes, n, ec);
+        if (r < 0) throw exception(ec);
+        return r;
+    }
+
+    inline ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept
+    {
+        return _d->write(bytes, n, ec);
+    }
+
+    inline void swap (device & rhs)
+    {
+        _d.swap(rhs._d);
+    }
+
+    inline void invalidate ()
+    {
+        if (_d) {
+            device tmp;
+            swap(tmp);
+        }
+    }
 
 //     ssize_t read (byte_string & bytes, size_t n, error_code & ec) noexcept
 //     {
@@ -358,107 +457,6 @@ public:
 //     {
 //         return this->write(bytes.data(), bytes.size());
 //     }
-
-    virtual error_code close () = 0;
-
-    virtual bool opened () const noexcept = 0;
-};
-
-////////////////////////////////////////////////////////////////////////////////
-//
-////////////////////////////////////////////////////////////////////////////////
-template <typename T>
-using unique_ptr = std::unique_ptr<T>;
-
-class device
-{
-private:
-    unique_ptr<basic_device> _d;
-
-public:
-    device () {}
-    device (basic_device * d) : _d(d) {}
-    device (device &&) = default;
-    device & operator = (device &&) = default;
-
-    device (device const &) = delete;
-    device & operator = (device const &) = delete;
-
-    ~device () {
-        if (opened())
-            close();
-    }
-
-    inline bool is_null ()  const noexcept
-    {
-        return _d.get() == nullptr;
-    }
-
-    inline device_type type () const noexcept
-    {
-        return _d->type();
-    }
-
-    inline open_mode_flags open_mode () const noexcept
-    {
-        return _d->open_mode();
-    }
-
-    inline bool is_readable () const noexcept
-    {
-        return _d->open_mode() & read_only;
-    }
-
-    inline bool is_writable () const noexcept
-    {
-        return this->open_mode() & write_only;
-    }
-
-    inline bool is_nonblocking () const noexcept
-    {
-        return this->open_mode() & non_blocking;
-    }
-
-    inline error_code close ()
-    {
-        return _d->close();
-    }
-
-    inline bool opened () const noexcept
-    {
-        return _d && _d->opened();
-    }
-
-    inline ssize_t read (char * bytes, size_t n, error_code & ec) noexcept
-    {
-        return _d->read(bytes, n, ec);
-    }
-
-    inline ssize_t read (char * bytes, size_t n)
-    {
-        error_code ec;
-        ssize_t r = read(bytes, n, ec);
-        if (r < 0) throw exception(ec);
-        return r;
-    }
-
-    inline ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept
-    {
-        return _d->write(bytes, n, ec);
-    }
-
-    inline void swap (device & rhs)
-    {
-        _d.swap(rhs._d);
-    }
-
-    inline void invalidate ()
-    {
-        if (_d) {
-            device tmp;
-            swap(tmp);
-        }
-    }
 
     template <typename UnderlyingDevice>
     friend UnderlyingDevice * underlying_device (device & dev);

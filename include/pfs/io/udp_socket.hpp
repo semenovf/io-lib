@@ -7,45 +7,62 @@
 //      2019.10.14 Initial version
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "inet_socket.hpp"
+#include "operationsystem.h"
+#include "device.hpp"
+
+#if defined(PFS_OS_UNIX)
+#   include "unix_socket.hpp"
+#else
+#   error "Unsupported platform"
+#endif
 
 namespace pfs {
 namespace io {
 
-class udp_socket : public basic_socket
+namespace platform {
+namespace udp {
+
+#if defined(PFS_OS_UNIX)
+    using device_handle = unix_ns::device_handle;
+    using host_address = unix_ns::host_address;
+    using unix_ns::udp::open_mode;
+    using unix_ns::udp::opened;
+    using unix_ns::udp::open;
+    using unix_ns::udp::close;
+    using unix_ns::udp::read;
+    using unix_ns::udp::write;
+    using unix_ns::udp::has_pending_data;
+    using unix_ns::swap;
+#endif
+
+}} // platform::udp
+
+class udp_socket : public basic_device
 {
-    inet46_addr _sa;
-    size_t _addrlen = 0;
+public:
+    using device_handle = platform::udp::device_handle;
+    using host_address = platform::udp::host_address;
 
 protected:
-    udp_socket (int fd) : basic_socket(fd) {}
+    device_handle _h;
+    host_address  _addr;
 
-    error_code open (std::string const & servername
-            , uint16_t port
-            , bool nonblocking)
+protected:
+    udp_socket (device_handle && h, host_address && addr)
     {
-        inet_socket_initializer socket_initializer(& _fd
-                , SOCK_DGRAM
-                , servername
-                , port
-                , nonblocking);
-        auto ec = socket_initializer.open();
-
-        if (!ec) {
-            _addrlen = socket_initializer.copy_addr(& _sa);
-        }
-
-        return ec;
+        using platform::udp::swap;
+        swap(h, _h);
+        swap(addr, _addr);
     }
 
 public:
-    udp_socket () : basic_socket{} {}
+    udp_socket () : basic_device() {}
     udp_socket (udp_socket const &) = delete;
     udp_socket & operator = (udp_socket const &) = delete;
 
-    udp_socket (udp_socket && rhs)
+    udp_socket (udp_socket && rhs) : basic_device()
     {
-       swap(rhs);
+        swap(rhs);
     }
 
     udp_socket & operator = (udp_socket && rhs)
@@ -56,58 +73,71 @@ public:
         return *this;
     }
 
-    virtual ~udp_socket () {}
+    virtual ~udp_socket ()
+    {
+        close();
+    }
 
-    device_type type () const noexcept override
+    virtual device_type type () const noexcept override
     {
         return device_type::udp_socket;
     }
 
-    // Inherited from basic_file.
-    // open_mode_flags open_mode () const noexcept override
-
-    error_code close () override
+    virtual open_mode_flags open_mode () const noexcept override
     {
-        return socket_finalizer{& _fd, false}();
+        return platform::udp::open_mode(& _h);
     }
 
-    // Inherited from basic_file.
-    // bool opened () const noexcept override
-
-    // Inherited from basic_socket.
-    // ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
-
-    ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
+    virtual bool has_pending_data () noexcept override
     {
-        int total_written = 0; // total sent
+        return platform::udp::has_pending_data(& _h);
+    }
 
-        while (n) {
-            // MSG_NOSIGNAL flag means:
-            // requests not to send SIGPIPE on errors on stream oriented sockets
-            // when the other end breaks the connection.
-            // The EPIPE error is still returned.
-            ssize_t written = sendto(_fd, bytes + total_written, n
-                    , MSG_NOSIGNAL
-                    , reinterpret_cast<sockaddr *>(& _sa.serveraddr)
-                    , _addrlen);
+    virtual error_code close () override
+    {
+        return platform::udp::close(& _h, true);
+    }
 
-            if (written < 0) {
-                if (errno == EAGAIN
-                        || (EAGAIN != EWOULDBLOCK && errno == EWOULDBLOCK))
-                    continue;
+    virtual bool opened () const noexcept override
+    {
+        return platform::udp::opened(& _h);
+    }
 
-                total_written = -1;
-                break;
-            }
+    virtual ssize_t read (char * bytes
+            , size_t n
+            , error_code & ec) noexcept override
+    {
+        return platform::udp::read(& _h, & _addr, bytes, n, ec);
+    }
 
-            total_written += written;
-            n -= written;
-        }
+    virtual ssize_t write (char const * bytes
+            , size_t n
+            , error_code & ec) noexcept override
+    {
+        return platform::udp::write(& _h, & _addr, bytes, n, ec);
+    }
 
-        if (total_written < 0)
-            ec = get_last_system_error();
+    ssize_t read_from (char * bytes
+            , size_t n
+            , host_address * paddr
+            , error_code & ec) noexcept
+    {
+        return platform::udp::read(& _h, paddr, bytes, n, ec);
+    }
 
-        return total_written;
+    ssize_t write_to (char const * bytes
+            , size_t n
+            , host_address const * paddr
+            , error_code & ec) noexcept
+    {
+        return platform::udp::write(& _h, paddr, bytes, n, ec);
+    }
+
+    void swap (udp_socket & rhs)
+    {
+        using platform::udp::swap;
+        swap(_h, rhs._h);
+        swap(_addr, rhs._addr);
     }
 
     friend device make_udp_socket (std::string const & servername
@@ -124,9 +154,13 @@ inline device make_udp_socket (std::string const & servername
             , bool nonblocking
             , error_code & ec)
 {
-    udp_socket sock;
-    ec = sock.open(servername, port, nonblocking);
-    return ec ? device{} : device{new udp_socket(std::move(sock))};
+    udp_socket::host_address addr;
+    udp_socket::device_handle h = platform::udp::open(servername
+            , port
+            , nonblocking
+            , & addr
+            , ec);
+    return ec ? device{} : device{new udp_socket(std::move(h), std::move(addr))};
 }
 
 /**

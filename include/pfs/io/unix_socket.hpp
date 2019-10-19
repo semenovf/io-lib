@@ -9,6 +9,8 @@
 #pragma once
 #include "unix_file.hpp"
 #include <vector>
+#include <cassert>
+#include <cstring>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -16,16 +18,133 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/un.h>
-#include <cassert>
 
 namespace pfs {
 namespace io {
 namespace unix_ns {
 
+struct host_address
+{
+    union {
+        sockaddr_in  addr4;
+        sockaddr_in6 addr6;
+    } addr;
+
+    host_address ()
+    {
+        std::memset(& addr, 0, sizeof(addr));
+    }
+};
+
+inline void swap (host_address & a, host_address & b)
+{
+    host_address tmp;
+    auto addlen = sizeof(tmp.addr);
+    std::memcpy(& tmp.addr, & a.addr, addlen);
+    std::memcpy(& a.addr, & b.addr, addlen);
+    std::memcpy(& b.addr, & tmp.addr, addlen);
+}
+
+namespace socket {
+
+inline bool has_pending_data (device_handle * h)
+{
+    char buf[1];
+    ssize_t n = recvfrom(h->fd, buf, 1, MSG_PEEK, nullptr, nullptr);
+    return n > 0;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
-// open_local_socket
+//
 ////////////////////////////////////////////////////////////////////////////////
-inline device_handle open_local_socket (std::string const & name
+inline ssize_t read (device_handle * h
+        , char * bytes
+        , size_t n
+        , error_code & ec) noexcept
+{
+    ssize_t rc = recv(h->fd, bytes, n, 0);
+
+    if (rc < 0
+            && errno == EAGAIN
+            || (EAGAIN != EWOULDBLOCK && errno == EWOULDBLOCK))
+        rc = 0;
+
+    if (rc < 0)
+        ec = get_last_system_error();
+
+    return rc;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+////////////////////////////////////////////////////////////////////////////////
+inline ssize_t write (device_handle * h
+        , char const * bytes
+        , size_t n
+        , error_code & ec) noexcept
+{
+    int total_written = 0; // total sent
+
+    while (n) {
+        // MSG_NOSIGNAL flag means:
+        // requests not to send SIGPIPE on errors on stream oriented sockets
+        // when the other end breaks the connection.
+        // The EPIPE error is still returned.
+        ssize_t written = send(h->fd, bytes + total_written, n, MSG_NOSIGNAL);
+
+        if (written < 0) {
+            if (errno == EAGAIN
+                    || (EAGAIN != EWOULDBLOCK && errno == EWOULDBLOCK))
+                continue;
+
+            total_written = -1;
+            break;
+        }
+
+        total_written += written;
+        n -= written;
+    }
+
+    if (total_written < 0)
+        ec = get_last_system_error();
+
+    return total_written;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Close socket
+////////////////////////////////////////////////////////////////////////////////
+inline error_code close (device_handle * h, bool force_shutdown)
+{
+    error_code ec;
+
+    if (h->fd > 0) {
+        if (force_shutdown)
+            shutdown(h->fd, SHUT_RDWR);
+
+        if (::close(h->fd) < 0)
+            ec = get_last_system_error();
+    }
+
+    h->fd = -1;
+    return ec;
+}
+
+} // socket
+
+namespace local {
+
+using file::open_mode;
+using file::opened;
+using socket::close;
+using socket::read;
+using socket::write;
+using socket::has_pending_data;
+
+////////////////////////////////////////////////////////////////////////////////
+// Open local socket
+////////////////////////////////////////////////////////////////////////////////
+inline device_handle open (std::string const & name
         , bool nonblocking
         , error_code & ec)
 {
@@ -77,9 +196,9 @@ inline device_handle open_local_socket (std::string const & name
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// open_local_server
+// Open local server
 ////////////////////////////////////////////////////////////////////////////////
-inline device_handle open_local_server (std::string const & name
+inline device_handle open_server (std::string const & name
         , bool nonblocking
         , int max_pending_connections
         , error_code & ec)
@@ -140,7 +259,27 @@ inline device_handle open_local_server (std::string const & name
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// open_inet_socket
+// Accept local socket
+////////////////////////////////////////////////////////////////////////////////
+inline device_handle accept (device_handle * h, error_code & ec)
+{
+    sockaddr_un peer_addr;
+    socklen_t peer_addr_len = sizeof(peer_addr);
+
+    int peer_fd = ::accept(h->fd
+            , reinterpret_cast<sockaddr *> (& peer_addr)
+            , & peer_addr_len);
+
+    if (peer_fd < 0)
+        ec = get_last_system_error();
+
+    return peer_fd < 0 ? device_handle{} : device_handle{peer_fd};
+}
+
+} // local
+
+////////////////////////////////////////////////////////////////////////////////
+// Open inet socket
 ////////////////////////////////////////////////////////////////////////////////
 inline std::pair<native_handle,std::vector<uint8_t>> open_inet_socket (
           std::string const & servername
@@ -252,10 +391,19 @@ inline std::pair<native_handle,std::vector<uint8_t>> open_inet_socket (
     return std::make_pair(fd, serveraddr);
 }
 
+namespace tcp {
+
+using file::open_mode;
+using file::opened;
+using socket::close;
+using socket::read;
+using socket::write;
+using socket::has_pending_data;
+
 ////////////////////////////////////////////////////////////////////////////////
-// open_tcp_socket
+// Open TCP socket
 ////////////////////////////////////////////////////////////////////////////////
-inline device_handle open_tcp_socket (std::string const & servername
+inline device_handle open (std::string const & servername
         , uint16_t port
         , bool nonblocking
         , error_code & ec)
@@ -284,9 +432,9 @@ inline device_handle open_tcp_socket (std::string const & servername
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// open_tcp_server
+// Open TCP server
 ////////////////////////////////////////////////////////////////////////////////
-inline device_handle open_tcp_server (std::string const & servername
+inline device_handle open_server (std::string const & servername
         , uint16_t port
         , bool nonblocking
         , int max_pending_connections
@@ -333,27 +481,9 @@ inline device_handle open_tcp_server (std::string const & servername
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// accept_local_socket
+// Accept TCP socket
 ////////////////////////////////////////////////////////////////////////////////
-inline device_handle accept_local_socket (device_handle * h, error_code & ec)
-{
-    sockaddr_un peer_addr;
-    socklen_t peer_addr_len = sizeof(peer_addr);
-
-    int peer_fd = ::accept(h->fd
-            , reinterpret_cast<sockaddr *> (& peer_addr)
-            , & peer_addr_len);
-
-    if (peer_fd < 0)
-        ec = get_last_system_error();
-
-    return peer_fd < 0 ? device_handle{} : device_handle{peer_fd};
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// accept_tcp_socket
-////////////////////////////////////////////////////////////////////////////////
-inline device_handle accept_tcp_socket (device_handle * h, error_code & ec)
+inline device_handle accept (device_handle * h, error_code & ec)
 {
     sockaddr_in  peer_addr4;
     sockaddr_in6 peer_addr6;
@@ -372,33 +502,106 @@ inline device_handle accept_tcp_socket (device_handle * h, error_code & ec)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// close_socket
+// Enable keep alive
 ////////////////////////////////////////////////////////////////////////////////
-inline error_code close_socket (device_handle * h, bool force_shutdown)
+inline error_code enable_keep_alive (device_handle * h, bool enable)
 {
-    error_code ec;
-
-    if (h->fd > 0) {
-        if (force_shutdown)
-            shutdown(h->fd, SHUT_RDWR);
-
-        if (::close(h->fd) < 0)
-            ec = get_last_system_error();
-    }
-
-    h->fd = -1;
-    return ec;
+    int optval = enable ? 1 : 0;
+    int rc = setsockopt(h->fd, SOL_SOCKET, SO_KEEPALIVE, & optval, sizeof(optval));
+    return rc < 0 ? get_last_system_error() : error_code{};
 }
 
-//
-// return -1 on error.
-//
-inline ssize_t read_socket (device_handle * h
+} // tcp
+
+namespace udp {
+
+using file::open_mode;
+using file::opened;
+using socket::close;
+using socket::has_pending_data;
+
+////////////////////////////////////////////////////////////////////////////////
+// Open UDP socket
+////////////////////////////////////////////////////////////////////////////////
+inline device_handle open (std::string const & servername
+        , uint16_t port
+        , bool nonblocking
+        , host_address * paddr
+        , error_code & ec)
+{
+    auto credentials = open_inet_socket(servername
+            , port
+            , SOCK_DGRAM
+            , nonblocking
+            , ec);
+
+    native_handle & fd = credentials.first;
+    auto addr = reinterpret_cast<sockaddr const *>(credentials.second.data());
+    socklen_t addrlen = static_cast<socklen_t>(credentials.second.size());
+
+    if (paddr)
+        std::memcpy(& paddr->addr, addr
+                , std::min(addrlen, static_cast<socklen_t>(sizeof(paddr->addr))));
+
+    return fd < 0 ? device_handle{} : device_handle{fd};
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Open UDP server
+////////////////////////////////////////////////////////////////////////////////
+inline device_handle open_server (std::string const & servername
+        , uint16_t port
+        , bool nonblocking
+        , error_code & ec)
+{
+    auto credentials = open_inet_socket(servername
+            , port
+            , SOCK_DGRAM
+            , nonblocking
+            , ec);
+
+    native_handle & fd = credentials.first;
+    auto addr = reinterpret_cast<sockaddr const *>(credentials.second.data());
+    auto addrlen = static_cast<socklen_t>(credentials.second.size());
+
+    if (fd >= 0) {
+        // The setsockopt() function is used to allow the local
+        // address to be reused when the server is restarted
+        // before the required wait time expires.
+        int on = 1;
+
+        int rc = setsockopt(fd
+                , SOL_SOCKET
+                , SO_REUSEADDR
+                , reinterpret_cast<char *>(& on)
+                , sizeof(on));
+
+        if (rc == 0) {
+            rc = ::bind(fd, addr, addrlen);
+
+            if (rc < 0) {
+                ec = get_last_system_error();
+                ::close(fd);
+                fd = -1;
+            }
+        }
+    }
+
+    return fd < 0 ? device_handle{} : device_handle{fd};
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Read from UDP socket
+////////////////////////////////////////////////////////////////////////////////
+inline ssize_t read (device_handle * h
+        , host_address * paddr
         , char * bytes
         , size_t n
         , error_code & ec) noexcept
 {
-    ssize_t rc = recv(h->fd, bytes, n, 0);
+    socklen_t addrlen = 0;
+    ssize_t rc = recvfrom(h->fd, bytes, n, 0
+            , reinterpret_cast<sockaddr *>(& paddr->addr), & addrlen);
 
     if (rc < 0
             && errno == EAGAIN
@@ -411,10 +614,11 @@ inline ssize_t read_socket (device_handle * h
     return rc;
 }
 
-//
-// return -1 on error.
-//
-ssize_t write_socket (device_handle * h
+////////////////////////////////////////////////////////////////////////////////
+// Write to UDP socket
+////////////////////////////////////////////////////////////////////////////////
+inline ssize_t write (device_handle * h
+        , host_address const * paddr
         , char const * bytes
         , size_t n
         , error_code & ec) noexcept
@@ -426,7 +630,12 @@ ssize_t write_socket (device_handle * h
         // requests not to send SIGPIPE on errors on stream oriented sockets
         // when the other end breaks the connection.
         // The EPIPE error is still returned.
-        ssize_t written = send(h->fd, bytes + total_written, n, MSG_NOSIGNAL);
+        ssize_t written = sendto(h->fd
+                , bytes + total_written
+                , n
+                , MSG_NOSIGNAL
+                , reinterpret_cast<sockaddr const *>(& paddr->addr)
+                , sizeof(paddr->addr));
 
         if (written < 0) {
             if (errno == EAGAIN
@@ -446,15 +655,6 @@ ssize_t write_socket (device_handle * h
 
     return total_written;
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// enable_keep_alive
-////////////////////////////////////////////////////////////////////////////////
-error_code enable_keep_alive (device_handle * h, bool enable)
-{
-    int optval = enable ? 1 : 0;
-    int rc = setsockopt(h->fd, SOL_SOCKET, SO_KEEPALIVE, & optval, sizeof(optval));
-    return rc < 0 ? get_last_system_error() : error_code{};
-}
+} // udp
 
 }}} // pfs::io::unix_ns

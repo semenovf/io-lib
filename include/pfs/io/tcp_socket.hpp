@@ -21,31 +21,38 @@ namespace pfs {
 namespace io {
 
 namespace platform {
+namespace tcp {
 
 #if defined(PFS_OS_UNIX)
     using device_handle = unix_ns::device_handle;
-    using unix_ns::open_mode;
-    using unix_ns::open_tcp_socket;
-    using unix_ns::close_socket;
-    using unix_ns::opened;
-    using unix_ns::read_socket;
-    using unix_ns::write_socket;
-    using unix_ns::enable_keep_alive;
+    using unix_ns::tcp::open_mode;
+    using unix_ns::tcp::opened;
+    using unix_ns::tcp::open;
+    using unix_ns::tcp::close;
+    using unix_ns::tcp::read;
+    using unix_ns::tcp::write;
+    using unix_ns::tcp::has_pending_data;
+    using unix_ns::tcp::enable_keep_alive;
     using unix_ns::swap;
 #endif
 
-} // platform
+}} // platform::tcp
 
 class tcp_socket : public basic_device
 {
-    platform::device_handle _h;
+public:
+    using device_handle = platform::tcp::device_handle;
 
 protected:
-    tcp_socket (platform::device_handle && h)
+    device_handle _h;
+
+protected:
+    tcp_socket (device_handle && h)
     {
-        using platform::swap;
+        using platform::tcp::swap;
         swap(h, _h);
     }
+
 public:
     tcp_socket () : basic_device() {}
     tcp_socket (tcp_socket const &) = delete;
@@ -76,38 +83,43 @@ public:
 
     virtual open_mode_flags open_mode () const noexcept override
     {
-        return platform::open_mode(& _h);
+        return platform::tcp::open_mode(& _h);
+    }
+
+    virtual bool has_pending_data () noexcept override
+    {
+        return platform::tcp::has_pending_data(& _h);
     }
 
     virtual error_code close () override
     {
-        return platform::close_socket(& _h, true);
+        return platform::tcp::close(& _h, true);
     }
 
     virtual bool opened () const noexcept override
     {
-        return platform::opened(& _h);
+        return platform::tcp::opened(& _h);
     }
 
     ssize_t read (char * bytes, size_t n, error_code & ec) noexcept override
     {
-        return platform::read_socket(& _h, bytes, n, ec);
+        return platform::tcp::read(& _h, bytes, n, ec);
     }
 
     ssize_t write (char const * bytes, size_t n, error_code & ec) noexcept override
     {
-        return platform::write_socket(& _h, bytes, n, ec);
+        return platform::tcp::write(& _h, bytes, n, ec);
     }
 
     void swap (tcp_socket & rhs)
     {
-        using platform::swap;
+        using platform::tcp::swap;
         swap(_h, rhs._h);
     }
 
     error_code enable_keep_alive (bool enable)
     {
-        return platform::enable_keep_alive(& _h, enable);
+        return platform::tcp::enable_keep_alive(& _h, enable);
     }
 
     friend device make_tcp_socket (std::string const & servername
@@ -124,8 +136,7 @@ inline device make_tcp_socket (std::string const & servername
             , bool nonblocking
             , error_code & ec)
 {
-    tcp_socket sock;
-    platform::device_handle h = platform::open_tcp_socket(servername
+    tcp_socket::device_handle h = platform::tcp::open(servername
             , port
             , nonblocking
             , ec);

@@ -12,7 +12,7 @@ list(APPEND MY_TEST_TARGETS buffer)
 list(APPEND MY_TEST_TARGETS file)
 list(APPEND MY_TEST_TARGETS local_socket)
 list(APPEND MY_TEST_TARGETS tcp_socket)
-# list(APPEND MY_TEST_TARGETS udp_socket)
+list(APPEND MY_TEST_TARGETS udp_socket)
 
 add_library(catch SHARED $<TARGET_OBJECTS:CATCH_OBJLIB>)
 

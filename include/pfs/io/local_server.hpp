@@ -15,14 +15,16 @@ namespace pfs {
 namespace io {
 
 namespace platform {
+namespace local {
 
 #if defined(PFS_OS_UNIX)
-    using unix_ns::open_local_server;
-    using unix_ns::close_socket;
-    using unix_ns::accept_local_socket;
+    using unix_ns::local::close;
+    using unix_ns::local::open_server;
+    using unix_ns::local::accept;
+    using unix_ns::swap;
 #endif
 
-} // platform
+}} // platform::local
 
 class local_server;
 
@@ -31,8 +33,8 @@ class local_peer : public local_socket
     friend class local_server;
 
 protected:
-    local_peer (platform::device_handle && h)
-        : local_socket{std::forward<platform::device_handle>(h)}
+    local_peer (platform::local::device_handle && h)
+        : local_socket{std::forward<platform::local::device_handle>(h)}
     {}
 
 public:
@@ -57,12 +59,12 @@ public:
 
 class local_server
 {
-    platform::device_handle _h;
+    platform::local::device_handle _h;
 
 protected:
-    local_server (platform::device_handle && h)
+    local_server (platform::local::device_handle && h)
     {
-        using platform::swap;
+        using platform::local::swap;
         swap(h, _h);
     }
 
@@ -91,18 +93,18 @@ public:
 
     error_code close ()
     {
-        return platform::close_socket(& _h, false);
+        return platform::local::close(& _h, false);
     }
 
     device accept (error_code & ec)
     {
-        platform::device_handle h = platform::accept_local_socket(& _h, ec);
+        platform::local::device_handle h = platform::local::accept(& _h, ec);
         return ec ? device{} : device{new local_peer{std::move(h)}};
     }
 
     void swap (local_server & rhs)
     {
-        using platform::swap;
+        using platform::local::swap;
         swap(_h, rhs._h);
     }
 
@@ -117,7 +119,7 @@ inline local_server make_local_server (std::string const & name
         , int max_pending_connections
         , error_code & ec)
 {
-    platform::device_handle h = platform::open_local_server(name
+    platform::local::device_handle h = platform::local::open_server(name
             , nonblocking
             , max_pending_connections
             , ec);

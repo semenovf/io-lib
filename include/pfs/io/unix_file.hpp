@@ -12,6 +12,7 @@
 #include <utility>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 
 namespace pfs {
 namespace io {
@@ -25,6 +26,14 @@ struct device_handle
     device_handle () : fd{-1} {}
     device_handle (native_handle h) : fd{h} {}
 };
+
+inline void swap (device_handle & a, device_handle & b)
+{
+    using std::swap;
+    swap(a.fd, b.fd);
+}
+
+namespace file {
 
 inline bool permission_enabled (permissions perms, permission perm)
 {
@@ -46,13 +55,6 @@ inline int to_native_perms (permissions perms)
     if (permission_enabled(perms, permission::others_exec))  result |= S_IXOTH;
 
     return result;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-inline void swap (device_handle & a, device_handle & b)
-{
-    using std::swap;
-    swap(a.fd, b.fd);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -93,7 +95,7 @@ inline open_mode_flags open_mode (device_handle const * h) noexcept
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-inline device_handle open_file (std::string const & path
+inline device_handle open (std::string const & path
         , open_mode_flags oflags
         , permissions perms
         , error_code & ec)
@@ -133,7 +135,7 @@ inline device_handle open_file (std::string const & path
     return device_handle{};
 }
 
-inline error_code close_file (device_handle * h)
+inline error_code close (device_handle * h)
 {
     error_code ec;
 
@@ -154,7 +156,7 @@ inline bool opened (device_handle const * h) noexcept
     return h->fd >= 0;
 }
 
-inline ssize_t read_file (device_handle * h
+inline ssize_t read (device_handle * h
         , char * bytes
         , size_t n
         , error_code & ec) noexcept
@@ -167,7 +169,7 @@ inline ssize_t read_file (device_handle * h
     return sz;
 }
 
-inline ssize_t write_file (device_handle * h
+inline ssize_t write (device_handle * h
         , char const * bytes
         , size_t n
         , error_code & ec) noexcept
@@ -180,4 +182,11 @@ inline ssize_t write_file (device_handle * h
     return sz;
 }
 
-}}} // pfs::io::unix_ns
+inline bool has_pending_data (device_handle * h)
+{
+    int n = 0;
+    auto rc = ioctl(h->fd, FIONREAD, & n);
+    return rc == 0 ? n > 0 : false;
+}
+
+}}}} // pfs::io::unix_ns::file

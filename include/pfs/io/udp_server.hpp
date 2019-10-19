@@ -8,73 +8,39 @@
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "udp_socket.hpp"
-#include <unistd.h>
 
 namespace pfs {
 namespace io {
 
-// class tcp_server;
+namespace platform {
+namespace udp {
 
-// class tcp_peer : public tcp_socket
-// {
-//     friend class tcp_server;
-//
-// protected:
-//     tcp_peer (int fd) : tcp_socket(fd) {}
-//
-// public:
-//     tcp_peer (tcp_peer const & rhs) = delete;
-//     tcp_peer & operator = (tcp_peer const & rhs) = delete;
-//
-//     tcp_peer (tcp_peer && rhs)
-//         : tcp_socket(std::forward<tcp_socket>(rhs))
-//     {}
-//
-//     tcp_peer & operator = (tcp_peer && rhs)
-//     {
-//         tcp_socket::operator = (std::forward<tcp_socket>(rhs));
-//         return *this;
-//     }
-//
-//     device_type type () const noexcept override
-//     {
-//         return device_type::tcp_peer;
-//     }
-// };
+#if defined(PFS_OS_UNIX)
+    using unix_ns::udp::open_server;
+    using unix_ns::swap;
+#endif
 
-class udp_server
+}} // platform::udp
+
+class udp_server : public udp_socket
 {
-    int _fd = -1;
+public:
+    using device_handle = platform::udp::device_handle;
+    using host_address = platform::udp::host_address;
 
 protected:
-    error_code open (std::string const & servername
-            , uint16_t port
-            , bool nonblocking)
-    {
-        inet_socket_initializer socket_initializer(& _fd
-                , SOCK_DGRAM
-                , servername
-                , port
-                , nonblocking);
-        auto ec = socket_initializer.open();
-        return ec;
-    }
-
-    void swap (udp_server & rhs)
-    {
-        using std::swap;
-        swap(_fd, rhs._fd);
-    }
+    udp_server (device_handle && h)
+        : udp_socket(std::forward<device_handle>(h), host_address{})
+    {}
 
 public:
-    udp_server () {}
-
+    udp_server () : udp_socket() {}
     udp_server (udp_server const &) = delete;
     udp_server & operator = (udp_server const &) = delete;
 
     udp_server (udp_server && rhs)
     {
-       swap(rhs);
+        swap(rhs);
     }
 
     udp_server & operator = (udp_server && rhs)
@@ -85,59 +51,37 @@ public:
         return *this;
     }
 
-    ~udp_server () {}
+    virtual ~udp_server () {}
 
-    error_code close ()
-    {
-        return socket_finalizer{& _fd, false}();
-    }
-
-//     friend udp_server make_udp_server (std::string const & servername
-//             , uint16_t port
-//             , bool nonblocking
-//             , int max_pending_connections
-//             , error_code & ec);
+    friend udp_server make_udp_server (std::string const & servername
+            , uint16_t port
+            , bool nonblocking
+            , error_code & ec);
 };
 
-// inline tcp_server make_tcp_server (std::string const & servername
-//         , uint16_t port
-//         , bool nonblocking
-//         , int max_pending_connections
-//         , error_code & ec)
-// {
-//     tcp_server server;
-//     ec = server.open(servername, port, nonblocking, max_pending_connections);
-//     return server;
-// }
-//
-// inline tcp_server make_tcp_server (std::string const & servername
-//         , uint16_t port
-//         , bool nonblocking
-//         , error_code & ec)
-// {
-//     return make_tcp_server(servername, port, nonblocking, 30, ec);
-// }
-//
-// inline tcp_server make_tcp_server (std::string const & servername
-//         , uint16_t port
-//         , bool nonblocking
-//         , int max_pending_connections)
-// {
-//     error_code ec;
-//     auto s = make_tcp_server(servername
-//             , port
-//             , nonblocking
-//             , max_pending_connections
-//             , ec);
-//     if (ec) throw exception(ec);
-//     return s;
-// }
-//
-// inline tcp_server make_tcp_server (std::string const & servername
-//         , uint16_t port
-//         , bool nonblocking)
-// {
-//     return make_tcp_server(servername, port, nonblocking, 30);
-// }
+inline udp_server make_udp_server (std::string const & servername
+        , uint16_t port
+        , bool nonblocking
+        , error_code & ec)
+{
+    udp_server::device_handle h = platform::udp::open_server(servername
+            , port
+            , nonblocking
+            , ec);
+    return ec ? udp_server{} : udp_server{std::move(h)};
+}
+
+inline udp_server make_udp_server (std::string const & servername
+        , uint16_t port
+        , bool nonblocking)
+{
+    error_code ec;
+    auto s = make_udp_server(servername
+            , port
+            , nonblocking
+            , ec);
+    if (ec) throw exception(ec);
+    return s;
+}
 
 }} // pfs::io
