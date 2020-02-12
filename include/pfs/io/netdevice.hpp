@@ -9,19 +9,19 @@
 // References:
 //      1. man netdevice
 //      2. [Getting interface MTU under Linux with PCAP](https://serverfault.com/questions/361503/getting-interface-mtu-under-linux-with-pcap)
-//      3. [ifconfig.c](https://github.com/openbsd/src/blob/master/sbin/ifconfig/ifconfig.c)
+//      3. [using C code to get same info as ifconfig](https://stackoverflow.com/questions/4951257/using-c-code-to-get-same-info-as-ifconfig)
+//      4. [Net-Tools](https://sourceforge.net/projects/net-tools/files/)
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include <string>
-#include <memory>
-#include <fstream>
 
 #if defined(__linux) || defined(__linux__)
 #   define PFS_IO_NETDEVICE_IMPL_LINUX 1
+#   include <fstream>
 #   include <unistd.h>
 #   include <sys/ioctl.h>
 #   include <net/if.h>
-    using impl_type = struct ifreq;
+#   include <cstring>
 #endif
 
 namespace pfs {
@@ -30,7 +30,6 @@ namespace io {
 class netdevice
 {
     std::string _name; // device name
-    std::unique_ptr<impl_type> _d;
 
 public:
     netdevice (std::string const & name);
@@ -46,7 +45,7 @@ public:
      */
     int mtu () const;
 
-private:
+public:
 #if PFS_IO_NETDEVICE_IMPL_LINUX
     int mtu_alternative0 () const;
     int mtu_alternative1 () const;
@@ -63,8 +62,24 @@ inline netdevice::netdevice (std::string const & name)
 #if PFS_IO_NETDEVICE_IMPL_LINUX
 int netdevice::mtu_alternative0 () const
 {
-    // TODO Implement using ioctl (man netdevice)
-    return -1;
+    int result = -1;
+    struct ifreq ifr;
+    int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (fd < 0)
+        return -1;
+
+    ifr.ifr_addr.sa_family = AF_INET;
+    ::memcpy(ifr.ifr_name , _name.c_str() , IFNAMSIZ - 1);
+
+    if (::ioctl(fd, SIOCGIFMTU, & ifr) < 0)
+        result = -1;
+    else
+        result = ifr.ifr_mtu;
+
+    ::close(fd);
+
+    return result;
 }
 
 int netdevice::mtu_alternative1 () const

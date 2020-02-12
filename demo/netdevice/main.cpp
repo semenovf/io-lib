@@ -14,8 +14,13 @@ int main (int argc, char * argv[])
 {
     if (argc < 2) {
         std::cerr << "Too few arguments. Specify network device name.\n"
-                << "List of network devices names:\n"
-                << "\tfor Linux: `cat /sys/class/net/`\n";
+                << "Get list of network devices:\n"
+#if PFS_IO_NETDEVICE_IMPL_LINUX
+                << "    for Linux: `ip a`\n"
+                << "               `/sbin/ifconfig`\n"
+                << "               `cat /sys/class/net/`\n"
+#endif
+        ;
         return EXIT_FAILURE;
     }
 
@@ -29,6 +34,11 @@ int main (int argc, char * argv[])
     } else {
         std::cout << "Device " << devname << "\n"
                 << "    mtu: " << mtu << "\n";
+
+#if PFS_IO_NETDEVICE_IMPL_LINUX
+        std::cout << "netdevice::mtu_alternative0(): " << dev.mtu_alternative0() << "\n";
+        std::cout << "netdevice::mtu_alternative1(): " << dev.mtu_alternative1() << "\n";
+#endif // PFS_IO_NETDEVICE_IMPL_LINUX
     }
 
     return EXIT_SUCCESS;
