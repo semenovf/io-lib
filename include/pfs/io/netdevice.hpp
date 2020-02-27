@@ -49,6 +49,10 @@ public:
 #if PFS_IO_NETDEVICE_IMPL_LINUX
     int mtu_alternative0 () const;
     int mtu_alternative1 () const;
+
+    // TODO Implement:
+    // int mtu_alternative2 () const; // using `/sbin/ifconfig`
+    // int mtu_alternative3 () const; // using `ip address show dev ...`
 #endif // PFS_IO_NETDEVICE_IMPL_LINUX
 };
 
