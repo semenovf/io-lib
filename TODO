@@ -1,0 +1,7 @@
+1. Support UDP multicast
+2. Support UDP broadcast
+3. REUSEDADDR
+4. RELIABLE UDP PROTOCOL - RUDP (https://tools.ietf.org/id/draft-ietf-sigtran-reliable-udp-00.txt)
+   Lossless UDP - https://github.com/bahamas10/ProjectTox-Core/wiki/Lossless-UDP
+   Reliable-UDP - https://github.com/andrewzk/Reliable-UDP
+   Reliable UDP (RUDP): The Next Big Streaming Protocol? (http://www.streamingmediaglobal.com/Articles/Editorial/Featured-Articles/Reliable-UDP-(RUDP)-The-Next-Big-Streaming-Protocol-86388.aspx)

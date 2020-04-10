@@ -64,7 +64,7 @@ inline netdevice::netdevice (std::string const & name)
 }
 
 #if PFS_IO_NETDEVICE_IMPL_LINUX
-int netdevice::mtu_alternative0 () const
+inline int netdevice::mtu_alternative0 () const
 {
     int result = -1;
     struct ifreq ifr;
@@ -86,7 +86,7 @@ int netdevice::mtu_alternative0 () const
     return result;
 }
 
-int netdevice::mtu_alternative1 () const
+inline int netdevice::mtu_alternative1 () const
 {
     std::string path {"/sys/class/net/"};
 
