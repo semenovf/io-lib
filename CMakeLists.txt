@@ -14,6 +14,7 @@ option(BUILD_STRICT "Build with strict policies: C++ standard required, C++ exte
 option(BUILD_TESTS "Build tests" ON)
 option(BUILD_DEMO "Build examples/demo" ON)
 option(ENABLE_COVERAGE "Build tests with coverage support" OFF)
+option(ENABLE_LIBZMQ "Enable ZeroMQ library" ON)
 
 message(STATUS "C++ compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "C++ compiler version: ${CMAKE_CXX_COMPILER_VERSION}")
@@ -25,6 +26,16 @@ endif()
 
 #include(${CMAKE_CURRENT_LIST_DIR}/3rdparty/pfs/common/library.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/library.cmake)
+
+if (ENABLE_LIBZMQ)
+    set(WITH_PERF_TOOL OFF CACHE BOOL "")
+    set(ZMQ_BUILD_TESTS OFF CACHE BOOL "")
+    set(ENABLE_CPACK OFF CACHE BOOL "")
+    add_subdirectory(3rdparty/libzmq)
+
+    set(CPPZMQ_BUILD_TESTS OFF CACHE BOOL "")
+    add_subdirectory(3rdparty/cppzmq)
+endif(ENABLE_LIBZMQ)
 
 if (BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_LIST_DIR}/tests)
     enable_testing()
