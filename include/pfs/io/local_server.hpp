@@ -17,7 +17,7 @@ namespace io {
 namespace platform {
 namespace local {
 
-#if defined(PFS_OS_UNIX)
+#if defined(PFS_OS_LINUX)
     using unix_ns::local::close;
     using unix_ns::local::open_server;
     using unix_ns::local::accept;
@@ -34,7 +34,7 @@ class local_peer : public local_socket
 
 protected:
     local_peer (platform::local::device_handle && h)
-        : local_socket{std::forward<platform::local::device_handle>(h)}
+        : local_socket{std::move(h)}
     {}
 
 public:
@@ -42,12 +42,12 @@ public:
     local_peer & operator = (local_peer const & rhs) = delete;
 
     local_peer (local_peer && rhs)
-        : local_socket(std::forward<local_socket>(rhs))
+        : local_socket(std::move(rhs))
     {}
 
     local_peer & operator = (local_peer && rhs)
     {
-        local_socket::operator = (std::forward<local_socket>(rhs));
+        local_socket::operator = (std::move(rhs));
         return *this;
     }
 

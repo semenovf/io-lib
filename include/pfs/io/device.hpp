@@ -154,7 +154,7 @@ inline std::error_code make_error_code (errc e)
 // TODO Crossplatform
 // [Construct std::error_code from errno on POSIX and GetLastError() on Windows](https://stackoverflow.com/questions/13950938/construct-stderror-code-from-errno-on-posix-and-getlasterror-on-windows)
 //
-#if defined(PFS_OS_UNIX)
+#if defined(PFS_OS_LINUX)
 inline std::error_code make_error_code_from_errno (int e)
 {
     switch(e) {

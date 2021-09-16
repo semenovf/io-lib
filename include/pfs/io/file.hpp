@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#if defined(PFS_OS_UNIX)
+#if defined(PFS_OS_LINUX)
 #   include "unix_file.hpp"
 #else
 #   error "Unsupported platform"
@@ -25,7 +25,7 @@ namespace io {
 namespace platform {
 namespace file {
 
-#if defined(PFS_OS_UNIX)
+#if defined(PFS_OS_LINUX)
     using device_handle = unix_ns::device_handle;
     using unix_ns::file::open_mode;
     using unix_ns::file::open;

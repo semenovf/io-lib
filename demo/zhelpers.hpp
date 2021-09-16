@@ -13,8 +13,6 @@
 #include <random>
 #include <thread>
 
-using zmq_socket_ptr = std::unique_ptr<zmq::socket_t>;
-
 namespace {
 
 inline void sleep_for_seconds (int secs)
@@ -40,19 +38,6 @@ inline auto random_integer (int from, int to) -> int
 inline auto within (int n) -> int
 {
     return random_integer(0, n);
-}
-
-zmq_socket_ptr make_client_socket (zmq::context_t & context)
-{
-    std::cout << "I: connecting to server..." << std::endl;
-    zmq_socket_ptr client {new zmq::socket_t(context, ZMQ_REQ)};
-    client->connect("tcp://localhost:5555");
-
-    // Configure socket to not wait at close time
-    int linger = 0;
-    client->set(zmq::sockopt::linger, linger);
-
-    return client;
 }
 
 //  Convert string to 0MQ string and send to socket

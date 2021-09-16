@@ -19,8 +19,23 @@
 #include <memory>
 #include <sstream>
 
+using zmq_socket_ptr = std::unique_ptr<zmq::socket_t>;
+
 constexpr std::chrono::milliseconds REQUEST_TIMEOUT {2500}; //  msecs, (> 1000!)
 constexpr int REQUEST_RETRIES = 3;    //  Before we abandon
+
+zmq_socket_ptr make_client_socket (zmq::context_t & context)
+{
+    std::cout << "I: connecting to server..." << std::endl;
+    zmq_socket_ptr client {new zmq::socket_t(context, ZMQ_REQ)};
+    client->connect("tcp://localhost:5555");
+
+    // Configure socket to not wait at close time
+    int linger = 0;
+    client->set(zmq::sockopt::linger, linger);
+
+    return client;
+}
 
 void client ()
 {
@@ -40,7 +55,7 @@ void client ()
         bool expect_reply = true;
 
         while (expect_reply) {
-            //  Poll socket for a reply, with timeout
+            // Poll socket for a reply, with timeout
             zmq::pollitem_t items[] = {
                 { *client, 0, ZMQ_POLLIN, 0 }
             };
@@ -48,9 +63,9 @@ void client ()
             //zmq::poll(& items[0], 1, REQUEST_TIMEOUT);
             zmq::poll(& items[0], 1, REQUEST_TIMEOUT);
 
-            //  If we got a reply, process it
+            // If we got a reply, process it
             if (items[0].revents & ZMQ_POLLIN) {
-                //  We got a reply from the server, must match sequence
+                // We got a reply from the server, must match sequence
                 std::string reply = s_recv(*client);
 
                 if (atoi(reply.c_str()) == sequence) {
@@ -67,7 +82,7 @@ void client ()
             } else {
                 std::cout << "W: no response from server, retrying..." << std::endl;
                 client = make_client_socket(context);
-                //  Send request again, on new socket
+                // Send request again, on new socket
                 s_send(*client, request.str());
             }
         }

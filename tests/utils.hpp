@@ -13,7 +13,7 @@
 
 #if defined(PFS_OS_WIN)
     // TODO Implement using GetTempPath()
-#elif defined(PFS_OS_UNIX)
+#elif defined(PFS_OS_LINUX)
 #   include <cstdlib>
     static std::string tmp_dir () {
         static char const * vars[] = {

@@ -16,7 +16,7 @@ namespace io {
 namespace platform {
 namespace tcp {
 
-#if defined(PFS_OS_UNIX)
+#if defined(PFS_OS_LINUX)
     using device_handle = unix_ns::device_handle;
     using unix_ns::tcp::close;
     using unix_ns::tcp::open_server;
@@ -34,7 +34,7 @@ class tcp_peer : public tcp_socket
 
 protected:
     tcp_peer (platform::tcp::device_handle && h)
-        : tcp_socket(std::forward<platform::tcp::device_handle>(h))
+        : tcp_socket(std::move(h))
     {}
 
 public:
@@ -42,12 +42,12 @@ public:
     tcp_peer & operator = (tcp_peer const & rhs) = delete;
 
     tcp_peer (tcp_peer && rhs)
-        : tcp_socket(std::forward<tcp_socket>(rhs))
+        : tcp_socket(std::move(rhs))
     {}
 
     tcp_peer & operator = (tcp_peer && rhs)
     {
-        tcp_socket::operator = (std::forward<tcp_socket>(rhs));
+        tcp_socket::operator = (std::move(rhs));
         return *this;
     }
 

@@ -15,7 +15,7 @@ namespace io {
 namespace platform {
 namespace udp {
 
-#if defined(PFS_OS_UNIX)
+#if defined(PFS_OS_LINUX)
     using unix_ns::udp::open_server;
     using unix_ns::swap;
 #endif
@@ -30,7 +30,7 @@ public:
 
 protected:
     udp_server (device_handle && h)
-        : udp_socket(std::forward<device_handle>(h), host_address{})
+        : udp_socket(std::move(h), host_address{})
     {}
 
 public:

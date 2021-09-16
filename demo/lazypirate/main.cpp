@@ -4,7 +4,7 @@
 // This file is part of [io-lib](https://github.com/semenovf/io-lib) library.
 //
 // Changelog:
-//      2021.09.21 Initial version
+//      2021.09.10 Initial version
 ////////////////////////////////////////////////////////////////////////////////
 #include <iostream>
 #include <string>
