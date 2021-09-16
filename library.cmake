@@ -15,7 +15,7 @@ add_library(${PROJECT_NAME} INTERFACE)
 add_library(pfs::io ALIAS ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME} INTERFACE ${CMAKE_CURRENT_LIST_DIR}/include)
 target_link_libraries(${PROJECT_NAME} INTERFACE pfs::common)
-target_link_libraries(${PROJECT_NAME} INTERFACE Threads::Threads)
+#target_link_libraries(${PROJECT_NAME} INTERFACE Threads::Threads)
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
         OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang" )
