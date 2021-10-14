@@ -25,3 +25,7 @@
 ### Standards, proposals
 
 1. [Working Draft, C++ Extensions for Networking](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/n4771.pdf)
+
+### File
+
+1. [Durability: Linux File APIs](https://www.evanjones.ca/durability-filesystem.html) ([RU](https://habr.com/ru/company/ruvds/blog/524172/))
